@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Glassbox — agent flight recorder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B1020; --panel:#121A30; --panel-2:#0E1526; --line:#233052;
+    --text:#E8ECF4; --muted:#8A93A8; --faint:#5A637E;
+    --hi:#2DD4A7; --mid:#F5A524; --lo:#F0564A; --accent:#6E8BFF;
+    --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --disp:'Space Grotesk',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--disp);font-size:15px;line-height:1.55;min-height:100vh}
+  ::selection{background:var(--accent);color:#fff}
+
+  header{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:22px 28px 0;flex-wrap:wrap}
+  .wordmark{font-weight:700;font-size:22px;letter-spacing:-.02em}
+  .wordmark span{color:var(--hi)}
+  .tagline{font-family:var(--mono);font-size:12px;color:var(--muted)}
+
+  .toolbar{display:flex;gap:10px;align-items:center;padding:14px 28px;flex-wrap:wrap}
+  .runbtn{font-family:var(--mono);font-size:12px;padding:7px 14px;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--muted);cursor:pointer;transition:border-color .15s,color .15s}
+  .runbtn:hover{border-color:var(--accent);color:var(--text)}
+  .runbtn.active{border-color:var(--hi);color:var(--hi)}
+  .runbtn:focus-visible,button:focus-visible,label:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .spacer{flex:1}
+  .drop{font-family:var(--mono);font-size:12px;color:var(--muted);border:1px dashed var(--line);border-radius:8px;padding:7px 14px;cursor:pointer;transition:border-color .15s,color .15s}
+  .drop:hover,.drop.hot{border-color:var(--mid);color:var(--mid)}
+  #fileInput{display:none}
+  .cmpbtn{font-family:var(--mono);font-size:12px;padding:7px 14px;border:1px solid var(--line);border-radius:8px;background:transparent;color:var(--muted);cursor:pointer}
+  .cmpbtn.active{border-color:var(--lo);color:var(--lo)}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;padding:6px 28px 18px}
+  .stat{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .stat .k{font-family:var(--mono);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+  .stat .v{font-size:22px;font-weight:500;margin-top:2px}
+  .stat .v.ok{color:var(--hi)} .stat .v.bad{color:var(--lo)}
+
+  main{padding:0 28px 60px;max-width:1080px}
+
+  .timeline{position:relative;padding-left:56px}
+  .rail{position:absolute;left:18px;top:0;bottom:0;width:2px;background:var(--line)}
+  .step{position:relative;border:1px solid var(--line);border-radius:10px;background:var(--panel);margin-bottom:10px;overflow:hidden;animation:rise .25s ease both}
+  @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){.step{animation:none}}
+  .tick{position:absolute;left:-46px;top:16px;height:10px;border-radius:2px;background:var(--hi)}
+  .stephead{display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;user-select:none}
+  .stephead:hover{background:var(--panel-2)}
+  .sn{font-family:var(--mono);font-size:11px;color:var(--muted);min-width:26px}
+  .act{font-family:var(--mono);font-size:12px;color:var(--accent);min-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .why{flex:1;font-size:14px;color:var(--text);min-width:180px}
+  .conf{font-family:var(--mono);font-size:12px;padding:2px 9px;border-radius:20px;border:1px solid}
+  .c-hi{color:var(--hi);border-color:var(--hi)} .c-mid{color:var(--mid);border-color:var(--mid)} .c-lo{color:var(--lo);border-color:var(--lo)}
+  .lat{font-family:var(--mono);font-size:11px;color:var(--muted);min-width:52px;text-align:right}
+  .detail{display:none;border-top:1px solid var(--line);padding:14px 16px;gap:14px;background:var(--panel-2)}
+  .step.open .detail{display:flex;flex-wrap:wrap}
+  .shot{flex:1;min-width:220px}
+  .shot p{font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em}
+  .frame{position:relative;background:#050810;border:1px solid var(--line);border-radius:8px;min-height:150px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .frame img{width:100%;display:block}
+  .frame .ph{font-family:var(--mono);font-size:11px;color:var(--faint);padding:20px;text-align:center}
+  .marker{position:absolute;width:22px;height:22px;border:2px solid var(--lo);border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 0 4px rgba(240,86,74,.25);pointer-events:none}
+  .meta{width:100%;font-family:var(--mono);font-size:11px;color:var(--muted)}
+
+  .diverge{border-color:var(--lo)}
+  .diverge .stephead{background:rgba(240,86,74,.07)}
+  .forkflag{font-family:var(--mono);font-size:11px;color:var(--lo);border:1px solid var(--lo);border-radius:20px;padding:2px 9px;white-space:nowrap}
+
+  .cmpgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+  .cmpcol h3{font-family:var(--mono);font-size:12px;color:var(--muted);font-weight:400;margin:6px 0 10px}
+  .ghost{border-style:dashed;opacity:.45}
+  .ghost .why{color:var(--muted);font-style:italic}
+  @media (max-width:760px){.cmpgrid{grid-template-columns:1fr}.act{min-width:0}}
+
+  .hint{font-family:var(--mono);font-size:11px;color:var(--faint);padding:8px 28px 24px}
+  footer{font-family:var(--mono);font-size:11px;color:var(--faint);padding:0 28px 30px}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wordmark">glass<span>box</span></div>
+  <div class="tagline">flight recorder for computer-use agents · every click, explained</div>
+</header>
+
+<div class="toolbar" id="runTabs"></div>
+
+<div class="stats" id="stats"></div>
+
+<main id="main"></main>
+
+<div class="hint">drop .jsonl run files anywhere on this page, or click load runs · screenshot paths resolve relative to this file · schema: {run_id, step, timestamp, screenshot_before, screenshot_after, action:{type,x,y,target_text}, reasoning, confidence, latency_ms}</div>
+<footer>glassbox · built on H Company Holo computer-use models</footer>
+
+<input type="file" id="fileInput" accept=".jsonl,.json" multiple>
+
+<script>
+const SAMPLE_A = [
+ {run_id:"run_A",step:1,timestamp:"16:41:02",screenshot_before:"",screenshot_after:"",action:{type:"screenshot",target_text:"desktop"},reasoning:"Capturing initial desktop state to locate the Notes app",confidence:0.97,latency_ms:640},
+ {run_id:"run_A",step:2,timestamp:"16:41:04",screenshot_before:"",screenshot_after:"",action:{type:"open",target_text:"Notes"},reasoning:"Opening Notes because the source numbers live in the Q3 note",confidence:0.94,latency_ms:1180},
+ {run_id:"run_A",step:3,timestamp:"16:41:07",screenshot_before:"",screenshot_after:"",action:{type:"click",x:412,y:186,target_text:"Q3 figures"},reasoning:"Selecting the Q3 figures note from the sidebar list",confidence:0.91,latency_ms:920},
+ {run_id:"run_A",step:4,timestamp:"16:41:09",screenshot_before:"",screenshot_after:"",action:{type:"copy",target_text:"4820, 5110, 4675"},reasoning:"Copying the three revenue values found in the note body",confidence:0.88,latency_ms:760},
+ {run_id:"run_A",step:5,timestamp:"16:41:12",screenshot_before:"",screenshot_after:"",action:{type:"open",target_text:"Numbers"},reasoning:"Opening Numbers because the task requires a spreadsheet",confidence:0.93,latency_ms:1420},
+ {run_id:"run_A",step:6,timestamp:"16:41:16",screenshot_before:"",screenshot_after:"",action:{type:"click",x:512,y:340,target_text:"cell B2"},reasoning:"Clicking cell B2 to begin entering the copied values",confidence:0.71,latency_ms:2140},
+ {run_id:"run_A",step:7,timestamp:"16:41:19",screenshot_before:"",screenshot_after:"",action:{type:"type",target_text:"4820"},reasoning:"Typing the first value from the Notes file into B2",confidence:0.9,latency_ms:880},
+ {run_id:"run_A",step:8,timestamp:"16:41:22",screenshot_before:"",screenshot_after:"",action:{type:"type",target_text:"5110, 4675"},reasoning:"Entering the remaining two values into B3 and B4",confidence:0.89,latency_ms:1310},
+ {run_id:"run_A",step:9,timestamp:"16:41:25",screenshot_before:"",screenshot_after:"",action:{type:"key",target_text:"cmd+S"},reasoning:"Saving the spreadsheet since all values are entered",confidence:0.95,latency_ms:540},
+ {run_id:"run_A",step:10,timestamp:"16:41:27",screenshot_before:"",screenshot_after:"",action:{type:"click",x:640,y:412,target_text:"Save"},reasoning:"Confirming the save dialog with the Save button",confidence:0.92,latency_ms:700},
+ {run_id:"run_A",step:11,timestamp:"16:41:29",screenshot_before:"",screenshot_after:"",action:{type:"done",target_text:""},reasoning:"Task complete: values transferred and file saved",confidence:0.96,latency_ms:420}
+];
+const SAMPLE_B = SAMPLE_A.slice(0,5).map(s=>({...s,run_id:"run_B"})).concat([
+ {run_id:"run_B",step:6,timestamp:"16:52:16",screenshot_before:"",screenshot_after:"",action:{type:"click",x:498,y:288,target_text:"cell A1"},reasoning:"Clicking A1, assuming the header row is where values go",confidence:0.58,latency_ms:2870},
+ {run_id:"run_B",step:7,timestamp:"16:52:19",screenshot_before:"",screenshot_after:"",action:{type:"type",target_text:"4820"},reasoning:"Typing the first value, overwriting the header cell",confidence:0.62,latency_ms:940},
+ {run_id:"run_B",step:8,timestamp:"16:52:23",screenshot_before:"",screenshot_after:"",action:{type:"key",target_text:"cmd+W"},reasoning:"Closing the window, believing the task is finished",confidence:0.44,latency_ms:610},
+ {run_id:"run_B",step:9,timestamp:"16:52:25",screenshot_before:"",screenshot_after:"",action:{type:"click",x:602,y:410,target_text:"Don't Save"},reasoning:"Dismissing the save dialog without saving changes",confidence:0.39,latency_ms:830}
+]);
+
+let runs = {run_A:SAMPLE_A, run_B:SAMPLE_B};
+let current = "run_A";
+let compareMode = false;
+
+const $ = s => document.querySelector(s);
+const el = (t,c,h) => {const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e;};
+const esc = s => String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+
+function confClass(c){return c>=0.85?"c-hi":c>=0.65?"c-mid":"c-lo"}
+function confColor(c){return c>=0.85?"var(--hi)":c>=0.65?"var(--mid)":"var(--lo)"}
+function actionLabel(a){
+  if(!a) return "—";
+  let s=a.type||"action";
+  if(a.x!=null&&a.y!=null) s+=` (${a.x}, ${a.y})`;
+  if(a.target_text) s+=` "${a.target_text}"`;
+  return s;
+}
+function actionSig(a){return a?`${a.type}|${a.target_text||""}`:""}
+
+function renderTabs(){
+  const bar=$("#runTabs"); bar.innerHTML="";
+  Object.keys(runs).forEach(id=>{
+    const b=el("button","runbtn"+(id===current&&!compareMode?" active":""),esc(id)+` <span style="opacity:.6">· ${runs[id].length} steps</span>`);
+    b.onclick=()=>{current=id;compareMode=false;renderAll();};
+    bar.appendChild(b);
+  });
+  bar.appendChild(el("div","spacer"));
+  const cmp=el("button","cmpbtn"+(compareMode?" active":""),"⑂ compare runs");
+  cmp.onclick=()=>{compareMode=!compareMode;renderAll();};
+  bar.appendChild(cmp);
+  const load=el("label","drop","⇪ load runs (.jsonl)");
+  load.tabIndex=0; load.htmlFor="fileInput";
+  load.onkeydown=e=>{if(e.key==="Enter")$("#fileInput").click()};
+  bar.appendChild(load);
+}
+
+function renderStats(){
+  const box=$("#stats"); box.innerHTML="";
+  const steps=runs[current]||[];
+  if(compareMode||!steps.length){box.style.display="none";return}
+  box.style.display="grid";
+  const total=steps.reduce((a,s)=>a+(s.latency_ms||0),0);
+  const avg=steps.reduce((a,s)=>a+(s.confidence||0),0)/steps.length;
+  const min=steps.reduce((m,s)=>(s.confidence??1)<(m.confidence??1)?s:m,steps[0]);
+  const add=(k,v,cls)=>{const d=el("div","stat");d.appendChild(el("div","k",k));d.appendChild(el("div","v"+(cls?" "+cls:""),v));box.appendChild(d);};
+  add("steps",steps.length);
+  add("total time",(total/1000).toFixed(1)+"s");
+  add("avg confidence",avg.toFixed(2),avg>=0.8?"ok":avg>=0.6?"":"bad");
+  add("shakiest step","#"+min.step+" · "+(min.confidence??0).toFixed(2),(min.confidence??0)<0.65?"bad":"");
+}
+
+function shotFrame(label,path,marker){
+  const wrap=el("div","shot"); wrap.appendChild(el("p",null,label));
+  const f=el("div","frame");
+  if(path){
+    const img=new Image(); img.src=path; img.alt=label+" screenshot";
+    img.onload=()=>{ if(marker){const m=el("div","marker");m.style.left=(marker.x/img.naturalWidth*100)+"%";m.style.top=(marker.y/img.naturalHeight*100)+"%";f.appendChild(m);} };
+    img.onerror=()=>{img.remove();f.appendChild(el("div","ph","screenshot not found<br>"+esc(path)))};
+    f.appendChild(img);
+  } else {
+    f.appendChild(el("div","ph","no screenshot logged"+(marker?`<br>click target: (${marker.x}, ${marker.y})`:"")));
+  }
+  wrap.appendChild(f);
+  return wrap;
+}
+
+function stepCard(s,opts={}){
+  const card=el("article","step"+(opts.diverge?" diverge":"")+(opts.ghost?" ghost":""));
+  const tick=el("div","tick");
+  const c=s.confidence??0;
+  tick.style.width=(6+c*24)+"px";
+  tick.style.background=confColor(c);
+  if(!opts.ghost)card.appendChild(tick);
+  const head=el("div","stephead");
+  head.setAttribute("role","button"); head.tabIndex=0;
+  head.appendChild(el("span","sn","#"+(s.step??"—")));
+  head.appendChild(el("span","act",esc(actionLabel(s.action))));
+  head.appendChild(el("span","why",esc(s.reasoning||"")));
+  if(opts.diverge)head.appendChild(el("span","forkflag","⑂ diverged here"));
+  if(!opts.ghost){
+    head.appendChild(el("span","conf "+confClass(c),c.toFixed(2)));
+    head.appendChild(el("span","lat",((s.latency_ms||0)/1000).toFixed(1)+"s"));
+  }
+  card.appendChild(head);
+  const d=el("div","detail");
+  const marker=(s.action&&s.action.x!=null)?{x:s.action.x,y:s.action.y}:null;
+  d.appendChild(shotFrame("before",s.screenshot_before,marker));
+  d.appendChild(shotFrame("after",s.screenshot_after,null));
+  d.appendChild(el("div","meta",`t=${esc(s.timestamp||"—")} · raw action: ${esc(JSON.stringify(s.action))}`));
+  card.appendChild(d);
+  const toggle=()=>card.classList.toggle("open");
+  head.onclick=toggle;
+  head.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();}};
+  return card;
+}
+
+function renderTimeline(){
+  const main=$("#main"); main.innerHTML="";
+  const wrap=el("div","timeline");
+  wrap.appendChild(el("div","rail"));
+  (runs[current]||[]).forEach((s,i)=>{
+    const card=stepCard(s); card.style.animationDelay=(i*30)+"ms";
+    wrap.appendChild(card);
+  });
+  main.appendChild(wrap);
+}
+
+function renderCompare(){
+  const main=$("#main"); main.innerHTML="";
+  const ids=Object.keys(runs);
+  if(ids.length<2){main.appendChild(el("p",null,"Load a second run to compare."));return}
+  const [a,b]=ids.slice(0,2), A=runs[a], B=runs[b];
+  let fork=-1;
+  const n=Math.max(A.length,B.length);
+  for(let i=0;i<n;i++){
+    if(!A[i]||!B[i]||actionSig(A[i].action)!==actionSig(B[i].action)){fork=i;break}
+  }
+  const banner=el("div","stat");
+  banner.style.marginBottom="14px";
+  banner.appendChild(el("div","k","divergence analysis"));
+  banner.appendChild(el("div","v"+(fork<0?" ok":" bad"),fork<0?"runs identical":`runs diverged at step ${((A[fork]||B[fork]).step)}`));
+  main.appendChild(banner);
+  const grid=el("div","cmpgrid");
+  [[a,A],[b,B]].forEach(([id,steps])=>{
+    const col=el("div","cmpcol",`<h3>${esc(id)}</h3>`);
+    for(let i=0;i<n;i++){
+      const s=steps[i];
+      if(s){col.appendChild(stepCard(s,{diverge:i===fork}))}
+      else col.appendChild(stepCard({step:"—",reasoning:"(run ended)",action:null},{ghost:true}));
+    }
+    grid.appendChild(col);
+  });
+  main.appendChild(grid);
+}
+
+function renderAll(){renderTabs();renderStats();compareMode?renderCompare():renderTimeline();}
+
+function ingest(text,fallbackName){
+  const byRun={};
+  text.split(/\r?\n/).filter(l=>l.trim()).forEach(line=>{
+    try{
+      const o=JSON.parse(line);
+      const id=o.run_id||fallbackName||"run";
+      (byRun[id]=byRun[id]||[]).push(o);
+    }catch(e){}
+  });
+  Object.entries(byRun).forEach(([id,steps])=>{
+    steps.sort((x,y)=>(x.step||0)-(y.step||0));
+    runs[id]=steps; current=id;
+  });
+  renderAll();
+}
+function handleFiles(list){
+  [...list].forEach(f=>{
+    const r=new FileReader();
+    r.onload=()=>ingest(r.result,f.name.replace(/\.[^.]+$/,""));
+    r.readAsText(f);
+  });
+}
+$("#fileInput").onchange=e=>handleFiles(e.target.files);
+document.addEventListener("dragover",e=>{e.preventDefault();document.querySelector(".drop").classList.add("hot")});
+document.addEventListener("dragleave",()=>document.querySelector(".drop").classList.remove("hot"));
+document.addEventListener("drop",e=>{e.preventDefault();document.querySelector(".drop").classList.remove("hot");handleFiles(e.dataTransfer.files)});
+
+renderAll();
+</script>
+</body>
+</html>
