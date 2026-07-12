@@ -95,13 +95,27 @@ def _action_from_tool(tool_name: str, args: dict[str, Any],
     return action
 
 
-def _is_calendar_commit(action: Optional[dict[str, Any]], calendar_run: bool) -> bool:
-    """True only for the explicit Save click in a Google Calendar creation run."""
-    if not calendar_run or not action:
+def _is_irreversible_commit(action: Optional[dict[str, Any]], *, calendar_run: bool,
+                            whatsapp_run: bool, glassbox_run: bool) -> bool:
+    """Mark only explicit commit clicks within a known product workflow."""
+    if not action:
         return False
     action_type = str(action.get("type") or "").lower()
     target = str(action.get("target_text") or "").strip().lower()
-    return "click" in action_type and target in {"save", "save button"}
+    if "click" not in action_type:
+        return False
+    if calendar_run and target in {"save", "save button"}:
+        return True
+    if whatsapp_run and target in {"send", "send button"}:
+        return True
+    return glassbox_run and target in {"submit to review queue", "submit"}
+
+
+def _is_calendar_commit(action: Optional[dict[str, Any]], calendar_run: bool) -> bool:
+    """Backward-compatible helper retained for the Calendar-specific tests."""
+    return _is_irreversible_commit(
+        action, calendar_run=calendar_run, whatsapp_run=False, glassbox_run=False
+    )
 
 
 def convert(events_path: Path, run_label: str) -> list[dict[str, Any]]:
@@ -136,6 +150,16 @@ def convert(events_path: Path, run_label: str) -> list[dict[str, Any]]:
         and "google calendar" in " ".join(str(c) for c in (ev.get("content") or [])).lower()
         for step in order
         for ev in by_step[step]["events"]
+    )
+    whatsapp_run = any(
+        ev.get("kind") == "message_event"
+        and "whatsapp" in " ".join(str(c) for c in (ev.get("content") or [])).lower()
+        for step in order for ev in by_step[step]["events"]
+    )
+    glassbox_run = any(
+        ev.get("kind") == "message_event"
+        and "glassbox" in " ".join(str(c) for c in (ev.get("content") or [])).lower()
+        for step in order for ev in by_step[step]["events"]
     )
 
     # First pass: decode each step's observation image (the "before" shot).
@@ -213,7 +237,10 @@ def convert(events_path: Path, run_label: str) -> list[dict[str, Any]]:
             "latency_ms": max(latency_ms, 0),
             "timestamp": bucket["ts"],
         }
-        if _is_calendar_commit(action, calendar_run):
+        if _is_irreversible_commit(
+            action, calendar_run=calendar_run, whatsapp_run=whatsapp_run,
+            glassbox_run=glassbox_run,
+        ):
             row["irreversible"] = True
         before = observations.get(step, ("", None))[0]
         after = observations.get(order[idx + 1], ("", None))[0] if idx + 1 < len(order) else ""

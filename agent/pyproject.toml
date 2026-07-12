@@ -12,6 +12,7 @@ license = { text = "MIT" }
 dependencies = [
     "google-auth-oauthlib>=1.2",
     "requests>=2.31",
+    "gradium>=0.4",
 ]
 
 [project.scripts]

@@ -205,12 +205,16 @@ def run_whatsapp_confirmation(cfg: Config, image: Path) -> int:
         print("WhatsApp cancelled — no recipient selected.")
         return 0
     contact = contact.strip()
-    approved = messagebox.askyesno(
-        "Confirm irreversible action",
-        f"Send this screenshot to exactly:\n\n{contact}\n\nThe CUA will click Send. Continue?",
-        parent=root,
-        icon="warning",
-    )
+    from .voice_approval import approve
+    try:
+        approved = approve(
+            f"Send this screenshot to {contact}?",
+            title="Confirm WhatsApp Send",
+        )
+    except Exception as exc:
+        messagebox.showerror("Gradium approval failed", str(exc), parent=root)
+        root.destroy()
+        return 1
     if not approved:
         root.destroy()
         print("WhatsApp cancelled — human rejected Send.")
@@ -271,7 +275,7 @@ def write_review_page(page: Path, image: Path, route: DemoRoute) -> None:
 <p>{html.escape(triage.summary)}</p><h2>Observable statements</h2>{statements}
 <h2>Missing context</h2><ul>{missing}</ul><label><b>CUA review note</b></label><br>
 <textarea id="review-note" placeholder="The CUA will summarize what is visible."></textarea><p>
-<button onclick="decision('queued')">Queue for trained reviewer</button>
+<button onclick="decision('submitted')">Submit to review queue</button>
 <button onclick="decision('dismissed')">Dismiss</button></p><p id="decision" class="warn">Awaiting human decision.</p>
 <small>The CUA must not press either decision button.</small></div>
 <script>function decision(x){{document.querySelector('#decision').textContent='Human decision: '+x;}}</script>""")
@@ -348,7 +352,7 @@ def _task(route: DemoRoute) -> str:
             "You are demonstrating Glassbox on the visible desktop. Stay in the browser. "
             "On the Glassbox Human Review page, read the warning, disposition, observable statements and "
             "missing context. Type one short evidence-only sentence in CUA review note. DO NOT click "
-            "Queue or Dismiss. Stop and report that Glassbox is awaiting a trained human decision."
+            "Submit to review queue or Dismiss. Stop and report that Glassbox is awaiting a trained human decision."
         )
     if route.name == "calendar":
         return (
@@ -361,6 +365,38 @@ def _task(route: DemoRoute) -> str:
         "On WhatsApp Share, verify the screenshot and recipient confirmation field are visible. "
         "Do not enter a recipient and do not send. Stop and report that sharing awaits human input."
     )
+
+
+def _commit_task(route: DemoRoute) -> str:
+    if route.name == "calendar":
+        return (
+            "The human approved the irreversible Calendar action. Stay in the visible Google "
+            "Calendar editor, click the blue Save button exactly once, verify the event appears, "
+            "and report whether it was saved. Do not change any fields or add guests."
+        )
+    return (
+        "The human approved submitting this review. Stay on the Glassbox Human Review page, click "
+        "Submit to review queue exactly once, verify the page says Human decision: submitted, "
+        "and report the result. Do not click Dismiss."
+    )
+
+
+def _approval_prompt(route: DemoRoute) -> str:
+    if route.name == "calendar":
+        title = route.event.title if route.event else "this event"
+        return f"Save {title} to Google Calendar?"
+    return "Submit this screenshot and evidence note to the trained human review queue?"
+
+
+def _append_trace(first: Path, second: Path, out: Path) -> None:
+    rows = []
+    for path in (first, second):
+        for line in path.read_text().splitlines():
+            if line.strip():
+                rows.append(json.loads(line))
+    for index, row in enumerate(rows):
+        row["step"] = index
+    out.write_text("".join(json.dumps(row) + "\n" for row in rows))
 
 
 def run_cua(cfg: Config, destination: Path, route: DemoRoute, out: Path) -> tuple[int, str]:
@@ -394,7 +430,36 @@ def run_cua(cfg: Config, destination: Path, route: DemoRoute, out: Path) -> tupl
     latest = out.parent / "latest.jsonl"
     if out != latest:
         shutil.copyfile(out, latest)
-    return code, f"{steps} real CUA steps written to {out}; {answer[:200]}"
+    from .voice_approval import approve
+    try:
+        approved = approve(_approval_prompt(route), title="Human approval required")
+    except Exception as exc:
+        return 1, f"Gradium approval failed; action blocked: {exc}"
+    if not approved:
+        return 0, f"{steps} preparation steps recorded; human clicked No, action blocked"
+
+    before_commit = {p.name for p in runs.iterdir() if p.is_dir()} if runs.exists() else set()
+    commit_answer = ""
+    commit_mcp = None
+    try:
+        commit_mcp = HoloMCP(cfg.holo_bin)
+        commit_answer = commit_mcp.run_task(_commit_task(route), timeout_s=90)
+    except Exception as exc:
+        return 1, f"Approval recorded but CUA commit failed: {exc}"
+    finally:
+        if commit_mcp is not None:
+            commit_mcp.close()
+        subprocess.run([str(cfg.holo_bin), "stop"], capture_output=True)
+    commit_dir = _new_run(runs, before_commit)
+    if commit_dir and (commit_dir / "events.jsonl").exists() and (commit_dir / "events.jsonl").stat().st_size:
+        commit_trace = out.with_name(out.stem + "-commit.jsonl")
+        write_glassbox_trace(commit_dir / "events.jsonl", commit_trace, out.stem + "-commit")
+        prepared = out.with_name(out.stem + "-prepare.jsonl")
+        shutil.copyfile(out, prepared)
+        _append_trace(prepared, commit_trace, out)
+    if out != latest:
+        shutil.copyfile(out, latest)
+    return code, f"Approved and committed. Trace: {out}; {commit_answer[:200]}"
 
 
 def main(argv: list[str] | None = None) -> int:
