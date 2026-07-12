@@ -14,6 +14,7 @@ import html
 import json
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -99,6 +100,42 @@ def classify(image: Path, cfg: Config) -> DemoRoute:
         "No validated review signal found — propose sharing on WhatsApp.",
         triage=triage,
     )
+
+
+def classify_with_progress(image: Path, cfg: Config) -> DemoRoute:
+    """Show immediate native feedback while hosted vision classification runs."""
+    import tkinter as tk
+
+    result: dict[str, object] = {}
+    root = tk.Tk()
+    root.title("Screenshot captured")
+    root.attributes("-topmost", True)
+    root.resizable(False, False)
+    frame = tk.Frame(root, padx=30, pady=24)
+    frame.pack()
+    tk.Label(frame, text="Screenshot captured", font=("Helvetica", 18, "bold")).pack()
+    status = tk.Label(frame, text="Analyzing and choosing the safest action…", pady=10)
+    status.pack()
+
+    def worker() -> None:
+        try:
+            result["route"] = classify(image, cfg)
+        except Exception as exc:
+            result["error"] = exc
+
+    def poll() -> None:
+        if "route" in result or "error" in result:
+            root.destroy()
+        else:
+            root.after(50, poll)
+
+    threading.Thread(target=worker, daemon=True).start()
+    root.after(50, poll)
+    root.eval("tk::PlaceWindow . center")
+    root.mainloop()
+    if "error" in result:
+        raise result["error"]  # type: ignore[misc]
+    return result["route"]  # type: ignore[return-value]
 
 
 def choose_route(route: DemoRoute, source_text: str = "") -> DemoRoute | None:
@@ -311,7 +348,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     cfg = Config.load()
     try:
-        route = classify(image, cfg)
+        route = classify(image, cfg) if args.prepare_only else classify_with_progress(image, cfg)
     except Exception as exc:
         print(f"Routing failed: {exc}", file=sys.stderr)
         return 2
