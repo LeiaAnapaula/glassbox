@@ -344,7 +344,7 @@ document.addEventListener("drop",e=>{e.preventDefault();document.querySelector("
 renderAll();
 // Demo convenience: ?run=../runs/foo.jsonl loads a same-origin trace. This
 // keeps the normal drag/drop path while making the live walkthrough one click.
-const runUrl=new URLSearchParams(location.search).get("run");
+const runUrl=new URLSearchParams(location.search).get("run")||"../runs/latest.jsonl";
 if(runUrl){
   fetch(runUrl).then(r=>{if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.text()})
     .then(text=>ingest(text,runUrl.split("/").pop().replace(/\.[^.]+$/, "")))

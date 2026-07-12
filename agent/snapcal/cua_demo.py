@@ -12,6 +12,7 @@ import argparse
 import base64
 import html
 import json
+import shutil
 import subprocess
 import sys
 import threading
@@ -214,6 +215,8 @@ def run_whatsapp_confirmation(cfg: Config, image: Path) -> int:
         root.destroy()
         print("WhatsApp cancelled — human rejected Send.")
         return 0
+    runs = HOLO_HOME / "runs"
+    before = {p.name for p in runs.iterdir() if p.is_dir()} if runs.exists() else set()
     try:
         result = send_screenshot(cfg, image, contact)
     except Exception as exc:
@@ -222,6 +225,10 @@ def run_whatsapp_confirmation(cfg: Config, image: Path) -> int:
         return 1
     finally:
         subprocess.run([str(cfg.holo_bin), "stop"], capture_output=True)
+    run_dir = _new_run(runs, before)
+    if run_dir and (run_dir / "events.jsonl").exists() and (run_dir / "events.jsonl").stat().st_size:
+        latest = Path.cwd() / "runs" / "latest.jsonl"
+        write_glassbox_trace(run_dir / "events.jsonl", latest, "latest-whatsapp")
     if result.ok:
         messagebox.showinfo("WhatsApp", "Screenshot sent and visually verified.", parent=root)
         code = 0
@@ -384,6 +391,9 @@ def run_cua(cfg: Config, destination: Path, route: DemoRoute, out: Path) -> tupl
     if not run_dir or not (run_dir / "events.jsonl").exists() or not (run_dir / "events.jsonl").stat().st_size:
         return code or 1, f"CUA finished but no non-empty event trace was found; {answer[:160]}"
     steps = write_glassbox_trace(run_dir / "events.jsonl", out, out.stem)
+    latest = out.parent / "latest.jsonl"
+    if out != latest:
+        shutil.copyfile(out, latest)
     return code, f"{steps} real CUA steps written to {out}; {answer[:200]}"
 
 
