@@ -185,6 +185,57 @@ def choose_route(route: DemoRoute, source_text: str = "") -> DemoRoute | None:
     return DemoRoute("whatsapp", "User selected WhatsApp sharing.")
 
 
+def run_whatsapp_confirmation(cfg: Config, image: Path) -> int:
+    """Collect an exact contact and require a second explicit send confirmation."""
+    import tkinter as tk
+    from tkinter import messagebox, simpledialog
+    from .whatsapp import send_screenshot
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    contact = simpledialog.askstring(
+        "WhatsApp recipient",
+        "Enter the exact displayed WhatsApp contact name:",
+        parent=root,
+    )
+    if not contact or not contact.strip():
+        root.destroy()
+        print("WhatsApp cancelled — no recipient selected.")
+        return 0
+    contact = contact.strip()
+    approved = messagebox.askyesno(
+        "Confirm irreversible action",
+        f"Send this screenshot to exactly:\n\n{contact}\n\nThe CUA will click Send. Continue?",
+        parent=root,
+        icon="warning",
+    )
+    if not approved:
+        root.destroy()
+        print("WhatsApp cancelled — human rejected Send.")
+        return 0
+    try:
+        result = send_screenshot(cfg, image, contact)
+    except Exception as exc:
+        messagebox.showerror("WhatsApp error", str(exc), parent=root)
+        root.destroy()
+        return 1
+    finally:
+        subprocess.run([str(cfg.holo_bin), "stop"], capture_output=True)
+    if result.ok:
+        messagebox.showinfo("WhatsApp", "Screenshot sent and visually verified.", parent=root)
+        code = 0
+    else:
+        messagebox.showerror(
+            "WhatsApp not verified",
+            result.error or "The screenshot was not confirmed as sent.",
+            parent=root,
+        )
+        code = 1
+    root.destroy()
+    return code
+
+
 def _data_uri(image: Path) -> str:
     mime = "image/jpeg" if image.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
     return f"{mime};base64,{base64.b64encode(image.read_bytes()).decode()}"
@@ -358,6 +409,8 @@ def main(argv: list[str] | None = None) -> int:
             print("Cancelled — no action opened.")
             return 0
         route = chosen
+        if route.name == "whatsapp":
+            return run_whatsapp_confirmation(cfg, image)
     destination = prepare_destination(Path.cwd() / "runs", image, route)
     print(json.dumps({"route": route.name, "summary": route.summary,
                       "destination": "Google Calendar" if route.name == "calendar" else str(destination)}, indent=2))
