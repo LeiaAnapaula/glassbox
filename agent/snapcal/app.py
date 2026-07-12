@@ -63,8 +63,8 @@ def process_one(cfg: Config, ui: PopupUI, prefs: Prefs, client: RealModelClient,
 
     _log(f"kind={candidate.kind} confidence={candidate.confidence:.2f} title={candidate.title!r} from {origin}")
     if candidate.kind == "non_event":
-        _log("not an event — dismissing.")
-        ui.close_quiet()
+        _log("not an event — offering WhatsApp forwarding only.")
+        ui.share_only(lambda contact: _send_whatsapp(cfg, image_path, contact, ui))
         return
 
     title = candidate.title or "event"
@@ -79,7 +79,11 @@ def process_one(cfg: Config, ui: PopupUI, prefs: Prefs, client: RealModelClient,
     if book.ok:
         prefs.record("add", confidence=candidate.confidence, frontmost=fm)
         _log(f"added to Google Calendar: {book.html_link}")
-        ui.added(title, on_undo=lambda: _undo(cfg, book.event_id, ui))
+        ui.added(
+            title,
+            on_undo=lambda: _undo(cfg, book.event_id, ui),
+            on_send=lambda contact: _send_whatsapp(cfg, image_path, contact, ui),
+        )
     else:
         _log(f"could not add: {book.error}")
         ui.result(False, book.error[:80])
@@ -89,6 +93,19 @@ def _undo(cfg: Config, event_id: str, ui: PopupUI) -> None:
     ok = gcal.delete_event(cfg, event_id)
     _log("undo: removed event" if ok else "undo: delete failed")
     ui.removed()
+
+
+def _send_whatsapp(cfg: Config, image_path: Path, contact: str, ui: PopupUI) -> None:
+    from .whatsapp import send_screenshot
+
+    result = send_screenshot(cfg, image_path, contact)
+    if result.ok:
+        _log(f"sent screenshot to WhatsApp contact {contact!r}")
+        ui.result(True, "")
+    else:
+        detail = result.error or "send could not be verified"
+        _log(f"WhatsApp send not confirmed: {detail}; report={result.answer[:200]!r}")
+        ui.result(False, detail[:80])
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -4,6 +4,10 @@ The Glassbox viewer (viewer/glassbox.html) ingests one JSON step per line:
     {run_id, step, action:{type,x,y,target_text}, reasoning,
      confidence, latency_ms, screenshot_before, screenshot_after, timestamp}
 
+For the Calendar commit click only, the row also contains
+``irreversible: true``. The pause-and-approve viewer gates on that top-level
+flag before allowing the action to commit.
+
 HoloDesktop emits a richer event stream (message/observation/policy/tool_result/
 answer/error) keyed by ``step_parts``. We fold each step's events into one
 Glassbox row, embedding observation screenshots as self-contained data URIs and
@@ -91,6 +95,15 @@ def _action_from_tool(tool_name: str, args: dict[str, Any],
     return action
 
 
+def _is_calendar_commit(action: Optional[dict[str, Any]], calendar_run: bool) -> bool:
+    """True only for the explicit Save click in a Google Calendar creation run."""
+    if not calendar_run or not action:
+        return False
+    action_type = str(action.get("type") or "").lower()
+    target = str(action.get("target_text") or "").strip().lower()
+    return "click" in action_type and target in {"save", "save button"}
+
+
 def convert(events_path: Path, run_label: str) -> list[dict[str, Any]]:
     """Read events.jsonl and return an ordered list of Glassbox step rows."""
     # Group events by step number.
@@ -115,6 +128,15 @@ def convert(events_path: Path, run_label: str) -> list[dict[str, Any]]:
     order.sort()
     rows: list[dict[str, Any]] = []
     observations: dict[int, tuple[str, Optional[tuple[int, int]]]] = {}
+
+    # Scope the irreversible marker to the Calendar task. A generic Save click
+    # in another application must not acquire Calendar commit semantics.
+    calendar_run = any(
+        ev.get("kind") == "message_event"
+        and "google calendar" in " ".join(str(c) for c in (ev.get("content") or [])).lower()
+        for step in order
+        for ev in by_step[step]["events"]
+    )
 
     # First pass: decode each step's observation image (the "before" shot).
     for step in order:
@@ -191,6 +213,8 @@ def convert(events_path: Path, run_label: str) -> list[dict[str, Any]]:
             "latency_ms": max(latency_ms, 0),
             "timestamp": bucket["ts"],
         }
+        if _is_calendar_commit(action, calendar_run):
+            row["irreversible"] = True
         before = observations.get(step, ("", None))[0]
         after = observations.get(order[idx + 1], ("", None))[0] if idx + 1 < len(order) else ""
         if before:

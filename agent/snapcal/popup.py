@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 import threading
 import tkinter as tk
+from tkinter import messagebox, simpledialog
 from pathlib import Path
 from typing import Any, Optional
 
@@ -80,9 +81,13 @@ class PopupUI:
     def result(self, ok: bool, msg: str) -> None:
         self._sched(lambda: self._show_result(ok, msg))
 
-    def added(self, title: str, on_undo) -> None:
-        """Zero-click success toast: '✓ Added — <title>' with an Undo button."""
-        self._sched(lambda: self._added(title, on_undo))
+    def added(self, title: str, on_undo, on_send=None) -> None:
+        """Show calendar success, Undo, and an optional confirmed WhatsApp action."""
+        self._sched(lambda: self._added(title, on_undo, on_send))
+
+    def share_only(self, on_send) -> None:
+        """Offer forwarding when the screenshot contains no calendar event."""
+        self._sched(lambda: self._share_only(on_send))
 
     def removed(self) -> None:
         self._sched(self._removed)
@@ -225,12 +230,12 @@ class PopupUI:
         if self._win is None:
             return
         if self._status is not None:
-            self._status.configure(text=("✓ Added to calendar" if ok else "✕ " + msg),
+            self._status.configure(text=("✓ Action completed" if ok else "✕ " + msg),
                                    fg=(HI if ok else LO), font=(FONT, 12, "bold"))
         # auto-dismiss shortly after
         self.root.after(4000, self._destroy)
 
-    def _added(self, title: str, on_undo) -> None:
+    def _added(self, title: str, on_undo, on_send=None) -> None:
         if self._win is None or self._status is None:
             return
         self._status.configure(text=f"✓ Added  ·  {title}", fg=HI, font=(FONT, 12, "bold"))
@@ -239,8 +244,54 @@ class PopupUI:
         bar.pack(fill="x", pady=(10, 0))
         self._btnbar = bar
         self._mk_button(bar, "Undo", LO, lambda: self._do_undo(on_undo))
+        if on_send is not None:
+            self._mk_button(bar, "Send to WhatsApp…", ACCENT,
+                            lambda: self._confirm_whatsapp(on_send))
         self._position(self._win)
         self._autoclose = self.root.after(9000, self._destroy)
+
+    def _share_only(self, on_send) -> None:
+        if self._win is None or self._status is None:
+            return
+        self._status.configure(text="No calendar event detected", fg=MUTED,
+                               font=(FONT, 12, "bold"))
+        outer = self._status.master.master.master
+        bar = tk.Frame(outer, bg=PANEL)
+        bar.pack(fill="x", pady=(10, 0))
+        self._btnbar = bar
+        self._mk_button(bar, "Send to WhatsApp…", ACCENT,
+                        lambda: self._confirm_whatsapp(on_send), primary=True)
+        self._mk_button(bar, "Dismiss", MUTED, self._destroy)
+        self._position(self._win)
+        self._autoclose = self.root.after(12000, self._destroy)
+
+    def _confirm_whatsapp(self, on_send) -> None:
+        """Collect the destination and confirm immediately before the real send."""
+        if getattr(self, "_autoclose", None):
+            self.root.after_cancel(self._autoclose)
+            self._autoclose = None
+        contact = simpledialog.askstring(
+            "Send screenshot to WhatsApp", "Exact WhatsApp contact name:",
+            parent=self._win,
+        )
+        if not contact or not contact.strip():
+            self._autoclose = self.root.after(9000, self._destroy)
+            return
+        contact = contact.strip()
+        confirmed = messagebox.askyesno(
+            "Confirm WhatsApp send",
+            f"Send this screenshot to {contact}?\n\n"
+            "HoloDesktop will operate WhatsApp and send the image. This cannot be undone here.",
+            parent=self._win,
+        )
+        if not confirmed:
+            self._autoclose = self.root.after(9000, self._destroy)
+            return
+        self._set_status(f"Sending screenshot to {contact}…")
+        if self._btnbar is not None:
+            self._btnbar.destroy()
+            self._btnbar = None
+        threading.Thread(target=lambda: on_send(contact), daemon=True).start()
 
     def _do_undo(self, on_undo) -> None:
         if getattr(self, "_autoclose", None):

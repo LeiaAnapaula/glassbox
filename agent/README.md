@@ -3,9 +3,14 @@
 Take a screenshot of an invite, a booking, or a "let's meet Friday at 3" message
 and snapcal reads it with H Company's Holo3.1 vision model, books the event in
 your Google Calendar automatically, and drops a small lower-right toast with an
-**Undo**. No confirmation clicks, no screen takeover.
+**Undo**. From that toast, you can also explicitly send the source screenshot to
+a WhatsApp Desktop contact through HoloDesktop's background computer-use mode.
 
 Built on H Company's Holo3.1 model (credited per hackathon rules).
+
+The repository also contains a separate, synthetic-only safeguarding triage
+demonstration. It preserves visible statements for trained human review and is
+not a trafficking detector. See [`TRIAGE_DEMO.md`](TRIAGE_DEMO.md).
 
 ## How it works
 
@@ -25,6 +30,7 @@ macOS screenshot (Cmd-Shift-4 / Cmd-Shift-3)
                                    ▼
               lower-right toast:  "✓ Added · <title>   [Undo]"
                                    │  Undo = API delete
+                                   │  Send to WhatsApp = contact + confirmation
                                    ▼
                      local outcome / preference counts
 ```
@@ -38,6 +44,14 @@ Calendar API does the booking — reliable and instant, so Undo is a real delete
 > computer-use agent instead of the API (drives a browser window without touching
 > your cursor). It's less reliable than the API path — Google Calendar's web Save
 > step is genuinely hard to automate — so the API is the default.
+
+WhatsApp forwarding is deliberately different from calendar booking. Personal
+WhatsApp has no public send API, so the GUI is the integration surface. It is
+never automatic: choose **Send to WhatsApp…**, enter the exact contact name, and
+approve the final confirmation. HoloDesktop then operates the WhatsApp window in
+background mode and reports success only after visually verifying the outgoing
+image. If Holo3.1 decides the screenshot is not an event, the popup skips all
+Calendar actions and offers only the confirmed WhatsApp action.
 
 ## Setup
 
@@ -60,6 +74,11 @@ Requires macOS and Python 3.10+.
      download the JSON.
   5. Save it as `~/.snapcal/credentials.json`.
 
+- **WhatsApp forwarding (optional):** install and sign into WhatsApp Desktop,
+  and install HoloDesktop CLI. The send action uses `holo mcp`; it does not use
+  `holo run` and therefore does not move the real cursor. The action appears in
+  the screenshot result card and always asks for confirmation.
+
   The first run opens a browser once for consent; the refreshable token is cached
   at `~/.snapcal/token.json`.
 
@@ -71,6 +90,7 @@ State (token, caches, traces) lives in `~/.snapcal` (override with `$SNAPCAL_HOM
 snapcal --watch                       # watch the screenshot folder (default)
 snapcal --once /path/to/screenshot.png   # process one screenshot and exit
 snapcal --watch --cua                 # experimental: book via HoloDesktop, not the API
+glassbox-preflight                    # non-consequential readiness checks
 ```
 
 (Equivalently `python3 -m snapcal …` without installing.)
@@ -88,6 +108,7 @@ snapcal --watch --cua                 # experimental: book via HoloDesktop, not 
 | `snapcal/app.py` | Orchestrator wiring the stages together. |
 | `snapcal/prefs.py` | Aggregate outcome counts (never raw screenshots). |
 | `snapcal/holo_desktop.py`, `holo_mcp.py` | Experimental `--cua` computer-use booking + Glassbox trace. |
+| `snapcal/whatsapp.py` | Confirmed background-CUA screenshot forwarding to WhatsApp Desktop. |
 
 ## Notes & limitations
 
@@ -100,3 +121,6 @@ snapcal --watch --cua                 # experimental: book via HoloDesktop, not 
   doesn't state one.
 - The `--cua` path drives Google Calendar's web UI, whose Save step is
   unreliable to automate; prefer the default API path.
+- WhatsApp forwarding requires an exact contact match and a visual success
+  report. Ambiguous contacts, login problems, or an unverified send are surfaced
+  as failures rather than treated as success.

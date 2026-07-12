@@ -67,6 +67,23 @@
   .marker{position:absolute;width:22px;height:22px;border:2px solid var(--lo);border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 0 4px rgba(240,86,74,.25);pointer-events:none}
   .meta{width:100%;font-family:var(--mono);font-size:11px;color:var(--muted)}
 
+  .step.gate{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  .gatepanel{border-top:1px solid var(--accent);padding:14px 16px;background:var(--panel-2)}
+  .gtitle{font-family:var(--mono);font-size:11px;color:var(--accent);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+  .gwhy{display:flex;align-items:center;gap:10px;font-size:14px}
+  .gatebtns{display:flex;gap:10px;margin-top:12px}
+  .gatebtn{font-family:var(--mono);font-size:12px;padding:7px 14px;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);cursor:pointer;transition:border-color .15s,background .15s}
+  .gatebtn.ok{color:var(--hi);border-color:var(--hi)}
+  .gatebtn.ok:hover{background:rgba(45,212,167,.12)}
+  .gatebtn.no{color:var(--lo);border-color:var(--lo)}
+  .gatebtn.no:hover{background:rgba(240,86,74,.12)}
+  .gatelabel{font-family:var(--mono);font-size:11px;border:1px solid;border-radius:20px;padding:2px 9px;white-space:nowrap}
+  .gatelabel.committed{color:var(--hi);border-color:var(--hi)}
+  .gatelabel.blocked{color:var(--lo);border-color:var(--lo)}
+  .gatereset{font-family:var(--mono);font-size:11px;padding:2px 9px;border:1px solid var(--line);border-radius:20px;background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap;transition:border-color .15s,color .15s}
+  .gatereset:hover{border-color:var(--accent);color:var(--accent)}
+  .logline{font-family:var(--mono);font-size:12px;color:var(--lo);border:1px dashed var(--lo);border-radius:10px;padding:10px 16px;margin-bottom:10px;animation:rise .25s ease both}
+
   .diverge{border-color:var(--lo)}
   .diverge .stephead{background:rgba(240,86,74,.07)}
   .forkflag{font-family:var(--mono);font-size:11px;color:var(--lo);border:1px solid var(--lo);border-radius:20px;padding:2px 9px;white-space:nowrap}
@@ -124,6 +141,7 @@ const SAMPLE_B = SAMPLE_A.slice(0,5).map(s=>({...s,run_id:"run_B"})).concat([
 let runs = {run_A:SAMPLE_A, run_B:SAMPLE_B};
 let current = "run_A";
 let compareMode = false;
+let gateState = {}; // run_id -> "pending" | "approved" | "rejected"
 
 const $ = s => document.querySelector(s);
 const el = (t,c,h) => {const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e;};
@@ -217,14 +235,51 @@ function stepCard(s,opts={}){
   return card;
 }
 
+function gatePanel(s){
+  const g=el("div","gatepanel");
+  g.appendChild(el("div","gtitle","⏸ awaiting approval · irreversible action"));
+  const row=el("div","gwhy");
+  row.appendChild(el("span","conf "+confClass(s.confidence??0),(s.confidence??0).toFixed(2)));
+  row.appendChild(el("span",null,esc(s.reasoning||"")));
+  g.appendChild(row);
+  const btns=el("div","gatebtns");
+  const ok=el("button","gatebtn ok","✓ Approve &amp; commit");
+  ok.onclick=()=>{gateState[current]="approved";renderAll();};
+  const no=el("button","gatebtn no","✕ Reject");
+  no.onclick=()=>{gateState[current]="rejected";renderAll();};
+  btns.appendChild(ok); btns.appendChild(no);
+  g.appendChild(btns);
+  return g;
+}
+
 function renderTimeline(){
   const main=$("#main"); main.innerHTML="";
   const wrap=el("div","timeline");
   wrap.appendChild(el("div","rail"));
-  (runs[current]||[]).forEach((s,i)=>{
+  const steps=runs[current]||[];
+  const gateIdx=steps.findIndex(s=>s.irreversible===true);
+  const state=gateIdx<0?null:(gateState[current]||"pending");
+  steps.forEach((s,i)=>{
+    if(gateIdx>=0 && i>gateIdx && state!=="approved") return;
     const card=stepCard(s); card.style.animationDelay=(i*30)+"ms";
+    if(i===gateIdx){
+      if(state==="pending"){
+        card.classList.add("gate");
+        card.appendChild(gatePanel(s));
+      } else {
+        const head=card.querySelector(".stephead");
+        head.appendChild(el("span","gatelabel "+(state==="approved"?"committed":"blocked"),
+          state==="approved"?"committed ✓":"blocked ⛔"));
+        const rst=el("button","gatereset","↺ reset gate");
+        rst.onclick=e=>{e.stopPropagation();delete gateState[current];renderAll();};
+        head.appendChild(rst);
+      }
+    }
     wrap.appendChild(card);
   });
+  if(gateIdx>=0 && state==="rejected"){
+    wrap.appendChild(el("div","logline","⛔ human rejected this action — commit blocked"));
+  }
   main.appendChild(wrap);
 }
 
@@ -270,6 +325,7 @@ function ingest(text,fallbackName){
   Object.entries(byRun).forEach(([id,steps])=>{
     steps.sort((x,y)=>(x.step||0)-(y.step||0));
     runs[id]=steps; current=id;
+    delete gateState[id];
   });
   renderAll();
 }
@@ -280,7 +336,7 @@ function handleFiles(list){
     r.readAsText(f);
   });
 }
-$("#fileInput").onchange=e=>handleFiles(e.target.files);
+$("#fileInput").onchange=e=>{handleFiles(e.target.files);e.target.value="";};
 document.addEventListener("dragover",e=>{e.preventDefault();document.querySelector(".drop").classList.add("hot")});
 document.addEventListener("dragleave",()=>document.querySelector(".drop").classList.remove("hot"));
 document.addEventListener("drop",e=>{e.preventDefault();document.querySelector(".drop").classList.remove("hot");handleFiles(e.dataTransfer.files)});
