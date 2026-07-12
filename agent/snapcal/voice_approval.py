@@ -12,9 +12,23 @@ from pathlib import Path
 DEFAULT_VOICE_ID = "YTpq7expH9539ERJ"  # documented Gradium example voice
 
 
+def _gradium_key() -> str:
+    key = os.environ.get("GRADIUM_API_KEY", "").strip()
+    if key:
+        return key
+    env_file = Path.home() / ".holo" / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            name, sep, value = line.partition("=")
+            if sep and name.strip() == "GRADIUM_API_KEY":
+                return value.strip().strip("'\"")
+    return ""
+
+
 def _synthesise(prompt: str) -> bytes:
     """Return Gradium WAV audio; raise on missing config or any API failure."""
-    if not os.environ.get("GRADIUM_API_KEY"):
+    api_key = _gradium_key()
+    if not api_key:
         raise RuntimeError("GRADIUM_API_KEY is required; irreversible action blocked")
     try:
         import gradium
@@ -22,7 +36,7 @@ def _synthesise(prompt: str) -> bytes:
         raise RuntimeError("Gradium SDK is not installed; irreversible action blocked") from exc
 
     async def run() -> bytes:
-        client = gradium.client.GradiumClient(api_key=os.environ["GRADIUM_API_KEY"])
+        client = gradium.client.GradiumClient(api_key=api_key)
         result = await client.tts(
             setup={
                 "model_name": "default",
