@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "glassbox-agent"
+version = "0.1.0"
+description = "Turn macOS screenshots into Google Calendar events, read by H Company's Holo3.1 vision model."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "google-auth-oauthlib>=1.2",
+    "requests>=2.31",
+]
+
+[project.scripts]
+glassbox = "glassbox_agent.app:main"
+
+[tool.setuptools]
+packages = ["glassbox_agent"]
