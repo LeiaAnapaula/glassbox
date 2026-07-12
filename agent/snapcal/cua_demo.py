@@ -121,6 +121,23 @@ def classify_with_progress(image: Path, cfg: Config) -> DemoRoute:
 
     def worker() -> None:
         try:
+            # The watcher deliberately opens this panel as soon as the filename
+            # appears. Wait here—not before the UI—for macOS to finish writing.
+            previous = -1
+            stable_reads = 0
+            for _ in range(100):
+                try:
+                    size = image.stat().st_size
+                except OSError:
+                    size = 0
+                if size > 0 and size == previous:
+                    stable_reads += 1
+                    if stable_reads >= 2:
+                        break
+                else:
+                    stable_reads = 0
+                previous = size
+                time.sleep(.05)
             result["route"] = classify(image, cfg)
         except Exception as exc:
             result["error"] = exc
@@ -488,21 +505,64 @@ def run_cua(cfg: Config, destination: Path, route: DemoRoute, out: Path) -> tupl
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the three-way screenshot/CUA demo")
-    parser.add_argument("image")
+    parser.add_argument("image", nargs="?")
+    parser.add_argument("--watch", action="store_true",
+                        help="Watch for real macOS screenshots with an immediate native panel")
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--trace", default="runs/unified-cua-demo.jsonl")
     args = parser.parse_args(argv)
+    if args.watch:
+        if args.image:
+            parser.error("do not provide IMAGE with --watch")
+        cfg = Config.load()
+        print(f"Watching {cfg.screenshot_dir} — take a screenshot with Cmd+Shift+4", flush=True)
+        known = {
+            p: p.stat().st_mtime_ns for p in cfg.screenshot_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg"}
+        } if cfg.screenshot_dir.exists() else {}
+        try:
+            while True:
+                if cfg.screenshot_dir.exists():
+                    for path in cfg.screenshot_dir.iterdir():
+                        if not path.is_file() or path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+                            continue
+                        try:
+                            mtime = path.stat().st_mtime_ns
+                        except OSError:
+                            continue
+                        if known.get(path) == mtime:
+                            continue
+                        known[path] = mtime
+                        if not path.name.startswith(("Screenshot", "Screen Shot")):
+                            continue
+                        trace = Path.cwd() / "runs" / f"demo-{time.strftime('%H%M%S')}.jsonl"
+                        code = process_image(path, cfg, trace=trace, prepare_only=False)
+                        print(f"Ready for next screenshot (last exit={code})", flush=True)
+                time.sleep(.05)
+        except KeyboardInterrupt:
+            subprocess.run([str(cfg.holo_bin), "stop"], capture_output=True)
+            print("\nScreenshot watcher stopped.")
+            return 0
+    if not args.image:
+        parser.error("IMAGE is required unless --watch is used")
     image = Path(args.image).expanduser().resolve()
     if not image.is_file():
         print(f"No such image: {image}", file=sys.stderr)
         return 2
     cfg = Config.load()
+    return process_image(
+        image, cfg, trace=Path(args.trace).resolve(), prepare_only=args.prepare_only
+    )
+
+
+def process_image(image: Path, cfg: Config, *, trace: Path, prepare_only: bool) -> int:
+    """Process one screenshot; shared by one-shot and persistent watcher modes."""
     try:
-        route = classify(image, cfg) if args.prepare_only else classify_with_progress(image, cfg)
+        route = classify(image, cfg) if prepare_only else classify_with_progress(image, cfg)
     except Exception as exc:
         print(f"Routing failed: {exc}", file=sys.stderr)
         return 2
-    if not args.prepare_only:
+    if not prepare_only:
         chosen = choose_route(route, route.event.source_text if route.event else "")
         if chosen is None:
             print("Cancelled — no action opened.")
@@ -513,9 +573,9 @@ def main(argv: list[str] | None = None) -> int:
     destination = prepare_destination(Path.cwd() / "runs", image, route)
     print(json.dumps({"route": route.name, "summary": route.summary,
                       "destination": "Google Calendar" if route.name == "calendar" else str(destination)}, indent=2))
-    if args.prepare_only:
+    if prepare_only:
         return 0
-    code, message = run_cua(cfg, destination, route, Path(args.trace).resolve())
+    code, message = run_cua(cfg, destination, route, trace)
     print(message)
     return code
 
