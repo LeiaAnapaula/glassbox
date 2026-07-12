@@ -1,4 +1,12 @@
 .env
 holo-desktop-cli/.env
 __pycache__/
+.venv/
 .DS_Store
+
+# python build/runtime artifacts
+*.pyc
+*.egg-info/
+build/
+dist/
+# agent state (OAuth token, caches, traces) lives in ~/.snapcal by default
