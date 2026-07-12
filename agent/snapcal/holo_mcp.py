@@ -83,7 +83,7 @@ class HoloMCP:
         self._request("initialize", {
             "protocolVersion": "2024-11-05",
             "capabilities": {},
-            "clientInfo": {"name": "glassbox", "version": "0.1"},
+            "clientInfo": {"name": "snapcal", "version": "0.1"},
         }, timeout_s=60)
         self._notify("notifications/initialized")
 

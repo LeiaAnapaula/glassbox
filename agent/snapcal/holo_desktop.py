@@ -90,7 +90,7 @@ def google_calendar_url(candidate: EventCandidate) -> str:
     if candidate.location:
         params.append(("location", candidate.location))
     if candidate.source_text:
-        params.append(("details", f"Captured by Glassbox from a screenshot:\n{candidate.source_text}"))
+        params.append(("details", f"Captured by snapcal from a screenshot:\n{candidate.source_text}"))
     query = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
     return f"https://calendar.google.com/calendar/render?{query}"
 

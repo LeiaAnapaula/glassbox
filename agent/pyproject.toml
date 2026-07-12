@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "glassbox-agent"
+name = "snapcal"
 version = "0.1.0"
 description = "Turn macOS screenshots into Google Calendar events, read by H Company's Holo3.1 vision model."
 readme = "README.md"
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-glassbox = "glassbox_agent.app:main"
+snapcal = "snapcal.app:main"
 
 [tool.setuptools]
-packages = ["glassbox_agent"]
+packages = ["snapcal"]

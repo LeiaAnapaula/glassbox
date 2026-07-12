@@ -19,7 +19,7 @@ import tkinter as tk
 from pathlib import Path
 from typing import Any, Optional
 
-# Glassbox palette.
+# snapcal palette.
 BG = "#0E1526"
 PANEL = "#121A30"
 LINE = "#233052"
@@ -119,7 +119,7 @@ class PopupUI:
         header = tk.Frame(outer, bg=PANEL)
         header.pack(fill="x", anchor="w")
         tk.Label(header, text="●", fg=ACCENT, bg=PANEL, font=(FONT, 11)).pack(side="left")
-        tk.Label(header, text="  Glassbox", fg=TEXT, bg=PANEL,
+        tk.Label(header, text="  snapcal", fg=TEXT, bg=PANEL,
                  font=(FONT, 13, "bold")).pack(side="left")
 
         body = tk.Frame(outer, bg=PANEL)

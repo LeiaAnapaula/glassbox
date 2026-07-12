@@ -29,7 +29,7 @@ from .watcher import SeenStore, watch_new_screenshots
 
 
 def _log(msg: str) -> None:
-    print(f"[glassbox] {msg}", flush=True)
+    print(f"[snapcal] {msg}", flush=True)
 
 
 def _book_via_cua(cfg: Config, candidate, browser_bundle_id, ui: PopupUI) -> None:
@@ -93,7 +93,7 @@ def _undo(cfg: Config, event_id: str, ui: PopupUI) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
-        prog="glassbox",
+        prog="snapcal",
         description="Screenshot -> Google Calendar agent (Holo3.1 + Calendar API).")
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--watch", action="store_true",

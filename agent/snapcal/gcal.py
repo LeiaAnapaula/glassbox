@@ -93,7 +93,7 @@ def _event_body(candidate: EventCandidate) -> dict:
     if candidate.location:
         body["location"] = candidate.location
     if candidate.source_text:
-        body["description"] = f"Captured by Glassbox from a screenshot:\n{candidate.source_text}"
+        body["description"] = f"Captured by snapcal from a screenshot:\n{candidate.source_text}"
     if start_iso:
         body["start"] = _event_time(start_iso, candidate.timezone)
         body["end"] = _event_time(end_iso or start_iso, candidate.timezone)

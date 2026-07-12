@@ -23,8 +23,8 @@ DEFAULT_MODEL = "holo3-1-35b-a3b"
 
 # User-scoped state (works regardless of where the package is installed):
 # OAuth client + token, seen-hash/prefs stores, and --cua traces all live here.
-# Override with $GLASSBOX_HOME.
-DATA_DIR = Path(os.environ.get("GLASSBOX_HOME", str(Path.home() / ".glassbox")))
+# Override with $SNAPCAL_HOME.
+DATA_DIR = Path(os.environ.get("SNAPCAL_HOME", str(Path.home() / ".snapcal")))
 TRACES_DIR = DATA_DIR / "traces"
 
 
@@ -87,10 +87,10 @@ class Config:
         cfg = cls(
             api_key=api_key,
             base_url=base_url,
-            model=os.environ.get("GLASSBOX_MODEL", DEFAULT_MODEL),
+            model=os.environ.get("SNAPCAL_MODEL", DEFAULT_MODEL),
         )
-        if os.environ.get("GLASSBOX_SCREENSHOT_DIR"):
-            cfg.screenshot_dir = Path(os.environ["GLASSBOX_SCREENSHOT_DIR"]).expanduser()
+        if os.environ.get("SNAPCAL_SCREENSHOT_DIR"):
+            cfg.screenshot_dir = Path(os.environ["SNAPCAL_SCREENSHOT_DIR"]).expanduser()
         cfg.traces_dir.mkdir(parents=True, exist_ok=True)
         cfg.data_dir.mkdir(parents=True, exist_ok=True)
         return cfg
