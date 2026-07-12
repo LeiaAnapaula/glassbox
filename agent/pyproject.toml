@@ -18,6 +18,7 @@ dependencies = [
 snapcal = "snapcal.app:main"
 glassbox-triage-demo = "snapcal.triage_app:main"
 glassbox-preflight = "snapcal.preflight:main"
+glassbox-cua-demo = "snapcal.cua_demo:main"
 
 [tool.setuptools]
 packages = ["snapcal"]

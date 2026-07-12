@@ -1,0 +1,245 @@
+"""Real-CUA demo for the three-way screenshot action router.
+
+Holo3.1 routes a screenshot to Calendar, WhatsApp, or Glassbox Review. A real
+foreground HoloDesktop run then narrates and opens the selected destination.
+Consequential actions remain human-controlled and the run becomes a Glassbox
+trace. The safeguarding route is synthetic-only in this hackathon prototype.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import html
+import json
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+
+from .config import Config, HOLO_HOME
+from .holo_desktop import google_calendar_url
+from .model_client import RealModelClient
+from .schema import EventCandidate
+from .trace import write_glassbox_trace
+from .triage_app import _verify_synthetic
+from .triage_model import TriageModelClient
+from .triage_schema import TriageCandidate
+
+
+@dataclass
+class DemoRoute:
+    name: str
+    summary: str
+    event: Optional[EventCandidate] = None
+    triage: Optional[TriageCandidate] = None
+
+
+def classify(image: Path, cfg: Config) -> DemoRoute:
+    """Choose exactly one product route without performing its action."""
+    event = RealModelClient(cfg).extract(image)
+    if event.kind == "event" and event.title and event.start_local:
+        return DemoRoute("calendar", "Event found — propose Add to Calendar.", event=event)
+
+    # Only declared synthetic training material enters the sensitive pipeline.
+    # Ordinary non-event screenshots fall through to the share suggestion.
+    try:
+        _verify_synthetic(image)
+    except ValueError:
+        return DemoRoute("whatsapp", "No event found — propose sharing on WhatsApp.")
+
+    triage = TriageModelClient(cfg).extract(image)
+    if triage.kind == "review":
+        return DemoRoute(
+            "glassbox_review",
+            "Observable concern found — human review recommended; not a trafficking determination.",
+            triage=triage,
+        )
+    return DemoRoute(
+        "whatsapp",
+        "No validated review signal found — propose sharing on WhatsApp.",
+        triage=triage,
+    )
+
+
+def _data_uri(image: Path) -> str:
+    mime = "image/jpeg" if image.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
+    return f"{mime};base64,{base64.b64encode(image.read_bytes()).decode()}"
+
+
+_STYLE = """body{font:18px system-ui;background:#0b1020;color:#eef2ff;max-width:980px;margin:32px auto}
+.card{border:1px solid #53618d;border-radius:18px;padding:24px;background:#111831;overflow:auto}
+img{max-width:360px;max-height:440px;float:right;margin-left:24px;border-radius:12px}
+textarea,input{width:52%;font:18px system-ui;padding:12px;background:#080d1c;color:#7fffd4;border:1px solid #53618d}
+textarea{height:90px}a,button{display:inline-block;padding:14px 20px;background:#5b7cfa;color:white;border:0;border-radius:10px;text-decoration:none;margin:4px}
+.warn{color:#ffd479}.quote{border-left:3px solid #7fffd4;padding-left:12px}small{color:#aab4d6}"""
+
+
+def write_review_page(page: Path, image: Path, route: DemoRoute) -> None:
+    triage = route.triage
+    assert triage is not None
+    statements = "".join(
+        f'<p class="quote"><b>{html.escape(item.category)}</b>: “{html.escape(item.quote)}”</p>'
+        for item in triage.observable_statements
+    ) or "<p>No validated observable statements.</p>"
+    missing = "".join(f"<li>{html.escape(item)}</li>" for item in triage.missing_context)
+    page.write_text(f"""<!doctype html><meta charset="utf-8"><title>Glassbox Review</title><style>{_STYLE}</style>
+<div class="card"><img src="data:{_data_uri(image)}"><h1>Glassbox Human Review</h1>
+<p class="warn"><b>Not a trafficking determination.</b> This screenshot lacks full context.</p>
+<p><b>Model disposition:</b> {html.escape(triage.kind)} · <b>extraction confidence:</b> {triage.confidence:.0%}</p>
+<p>{html.escape(triage.summary)}</p><h2>Observable statements</h2>{statements}
+<h2>Missing context</h2><ul>{missing}</ul><label><b>CUA review note</b></label><br>
+<textarea id="review-note" placeholder="The CUA will summarize what is visible."></textarea><p>
+<button onclick="decision('queued')">Queue for trained reviewer</button>
+<button onclick="decision('dismissed')">Dismiss</button></p><p id="decision" class="warn">Awaiting human decision.</p>
+<small>The CUA must not press either decision button.</small></div>
+<script>function decision(x){{document.querySelector('#decision').textContent='Human decision: '+x;}}</script>""")
+
+
+def write_share_page(page: Path, image: Path) -> None:
+    page.write_text(f"""<!doctype html><meta charset="utf-8"><title>WhatsApp handoff</title><style>{_STYLE}</style>
+<div class="card"><img src="data:{_data_uri(image)}"><h1>WhatsApp Share</h1>
+<p>Choose the exact recipient and confirm before the CUA sends this screenshot.</p>
+<label>Recipient</label><br><input placeholder="Exact contact"><p><button>Confirm recipient</button></p>
+<small>No message has been sent.</small></div>""")
+
+
+def write_handoff(page: Path, image: Path, route: DemoRoute, destination: Path) -> None:
+    if route.name == "calendar":
+        assert route.event is not None
+        action_url = google_calendar_url(route.event)
+        action_label = "Continue to Calendar"
+        proposed = route.event.title or "Calendar event"
+    elif route.name == "glassbox_review":
+        action_url = destination.as_uri()
+        action_label = "Open Glassbox Review"
+        proposed = "Analyze evidence and request a trained human decision"
+    else:
+        action_url = destination.as_uri()
+        action_label = "Open WhatsApp Handoff"
+        proposed = "Choose an exact recipient and confirm sharing"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text(f"""<!doctype html><meta charset="utf-8"><title>Screenshot Action Router</title><style>{_STYLE}</style>
+<div class="card"><img src="data:{_data_uri(image)}"><h1>Screenshot Action Router</h1>
+<p><b>Selected action:</b> {html.escape(route.name)}</p><p class="warn">{html.escape(route.summary)}</p>
+<p><b>Next:</b> {html.escape(proposed)}</p><label><b>CUA live status</b></label><br>
+<textarea id="status" autofocus placeholder="The CUA will type one concise status here."></textarea><p>
+<a id="continue" href="{html.escape(action_url, quote=True)}">{html.escape(action_label)}</a></p>
+<small>The router proposes an action; a human controls the consequential decision.</small></div>""")
+
+
+def prepare_pages(root: Path, image: Path, route: DemoRoute) -> tuple[Path, Path]:
+    root.mkdir(parents=True, exist_ok=True)
+    handoff = root / "cua-demo-handoff.html"
+    destination = root / (
+        "glassbox-review.html" if route.name == "glassbox_review" else "whatsapp-handoff.html"
+    )
+    if route.name == "glassbox_review":
+        write_review_page(destination, image, route)
+    elif route.name == "whatsapp":
+        write_share_page(destination, image)
+    write_handoff(handoff, image, route, destination)
+    return handoff, destination
+
+
+def prepare_destination(root: Path, image: Path, route: DemoRoute) -> Path:
+    """Build only the selected destination; the old router handoff is not shown."""
+    root.mkdir(parents=True, exist_ok=True)
+    if route.name == "glassbox_review":
+        destination = root / "glassbox-review.html"
+        write_review_page(destination, image, route)
+        return destination
+    if route.name == "whatsapp":
+        destination = root / "whatsapp-handoff.html"
+        write_share_page(destination, image)
+        return destination
+    return root / "calendar-opens-directly"
+
+
+def _new_run(runs: Path, before: set[str]) -> Path | None:
+    candidates = [p for p in runs.iterdir() if p.is_dir() and p.name not in before]
+    return max(candidates, key=lambda p: p.stat().st_mtime, default=None)
+
+
+def _task(route: DemoRoute) -> str:
+    if route.name == "glassbox_review":
+        return (
+            "You are demonstrating Glassbox on the visible desktop. Stay in the browser. "
+            "On the Glassbox Human Review page, read the warning, disposition, observable statements and "
+            "missing context. Type one short evidence-only sentence in CUA review note. DO NOT click "
+            "Queue or Dismiss. Stop and report that Glassbox is awaiting a trained human decision."
+        )
+    if route.name == "calendar":
+        return (
+            "You are demonstrating the Calendar route on the visible desktop. Stay in the browser. "
+            "Wait for the pre-filled Google Calendar editor and verify title/time. DO NOT CLICK SAVE. "
+            "Stop and report that Calendar is awaiting human approval."
+        )
+    return (
+        "You are demonstrating the WhatsApp route on the visible desktop. Stay in the browser. "
+        "On WhatsApp Share, verify the screenshot and recipient confirmation field are visible. "
+        "Do not enter a recipient and do not send. Stop and report that sharing awaits human input."
+    )
+
+
+def run_cua(cfg: Config, destination: Path, route: DemoRoute, out: Path) -> tuple[int, str]:
+    from .holo_mcp import HoloMCP
+
+    if route.name == "calendar":
+        assert route.event is not None
+        subprocess.run(["open", google_calendar_url(route.event)], check=True)
+    else:
+        subprocess.run(["open", str(destination)], check=True)
+    time.sleep(2)
+    runs = HOLO_HOME / "runs"
+    before = {p.name for p in runs.iterdir() if p.is_dir()} if runs.exists() else set()
+    answer = ""
+    code = 0
+    mcp = None
+    try:
+        mcp = HoloMCP(cfg.holo_bin)
+        answer = mcp.run_task(_task(route), timeout_s=150)
+    except Exception as exc:
+        code = 1
+        answer = f"CUA error: {exc}"
+    finally:
+        if mcp is not None:
+            mcp.close()
+        subprocess.run([str(cfg.holo_bin), "stop"], capture_output=True)
+    run_dir = _new_run(runs, before)
+    if not run_dir or not (run_dir / "events.jsonl").exists() or not (run_dir / "events.jsonl").stat().st_size:
+        return code or 1, f"CUA finished but no non-empty event trace was found; {answer[:160]}"
+    steps = write_glassbox_trace(run_dir / "events.jsonl", out, out.stem)
+    return code, f"{steps} real CUA steps written to {out}; {answer[:200]}"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run the three-way screenshot/CUA demo")
+    parser.add_argument("image")
+    parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--trace", default="runs/unified-cua-demo.jsonl")
+    args = parser.parse_args(argv)
+    image = Path(args.image).expanduser().resolve()
+    if not image.is_file():
+        print(f"No such image: {image}", file=sys.stderr)
+        return 2
+    cfg = Config.load()
+    try:
+        route = classify(image, cfg)
+    except Exception as exc:
+        print(f"Routing failed: {exc}", file=sys.stderr)
+        return 2
+    destination = prepare_destination(Path.cwd() / "runs", image, route)
+    print(json.dumps({"route": route.name, "summary": route.summary,
+                      "destination": "Google Calendar" if route.name == "calendar" else str(destination)}, indent=2))
+    if args.prepare_only:
+        return 0
+    code, message = run_cua(cfg, destination, route, Path(args.trace).resolve())
+    print(message)
+    return code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

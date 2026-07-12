@@ -12,6 +12,23 @@ The repository also contains a separate, synthetic-only safeguarding triage
 demonstration. It preserves visible statements for trained human review and is
 not a trafficking detector. See [`TRIAGE_DEMO.md`](TRIAGE_DEMO.md).
 
+## Unified visible-CUA demo
+
+From the repository root, run:
+
+```bash
+PYTHONPATH=agent .venv/bin/python -m snapcal.cua_demo \
+  agent/demo/synthetic-triage/case-01-document-control.png \
+  --trace runs/unified-cua-demo.jsonl
+```
+
+The command routes the screenshot with hosted Holo3.1 to Calendar, WhatsApp, or
+Glassbox Review, opens a local handoff page, and starts a real foreground
+HoloDesktop run. The CUA types one concise status line and opens the selected
+destination. It stops before Save, Send, Queue, or Dismiss for real human input,
+always issues `holo stop` afterward, and converts the run into a Glassbox JSONL
+trace. The sensitive review route accepts synthetic cases only.
+
 ## How it works
 
 ```
