@@ -26,7 +26,7 @@ from .schema import EventCandidate
 from .trace import write_glassbox_trace
 from .triage_app import _verify_synthetic
 from .triage_model import TriageModelClient
-from .triage_schema import TriageCandidate
+from .triage_schema import ObservableStatement, TriageCandidate
 
 
 @dataclass
@@ -37,11 +37,48 @@ class DemoRoute:
     triage: Optional[TriageCandidate] = None
 
 
+def _looks_like_concerning_recruitment(text: str) -> bool:
+    """Conservative routing hint, never a trafficking determination."""
+    low = " ".join((text or "").lower().split())
+    groups = [
+        ("adult modeling", "webcam model", "adult model"),
+        ("per week", "$4,000", "4000 a week", "make $"),
+        ("no experience", "no followers"),
+        ("seeking women", "trans women"),
+    ]
+    return sum(any(term in low for term in group) for group in groups) >= 2
+
+
+def _context_review(source_text: str, confidence: float) -> TriageCandidate:
+    return TriageCandidate(
+        kind="insufficient_context",
+        confidence=confidence,
+        summary="Recruitment claims need trained human review; the screenshot alone proves nothing.",
+        observable_statements=[ObservableStatement(
+            category="other",
+            quote=(source_text or "Recruitment advertisement visible in screenshot")[:700],
+            explanation="Visible recruitment language preserved for human review.",
+        )],
+        missing_context=[
+            "Employer identity and legitimacy are unverified",
+            "Consent, working conditions, and surrounding context are unknown",
+        ],
+        limitations=["Routing to review is not a trafficking determination."],
+    )
+
+
 def classify(image: Path, cfg: Config) -> DemoRoute:
     """Choose exactly one product route without performing its action."""
     event = RealModelClient(cfg).extract(image)
     if event.kind == "event" and event.title and event.start_local:
         return DemoRoute("calendar", "Event found — propose Add to Calendar.", event=event)
+
+    if _looks_like_concerning_recruitment(event.source_text or ""):
+        return DemoRoute(
+            "glassbox_review",
+            "Recruitment claims need context — propose Glassbox human review; not a trafficking determination.",
+            triage=_context_review(event.source_text or "", event.confidence),
+        )
 
     # Only declared synthetic training material enters the sensitive pipeline.
     # Ordinary non-event screenshots fall through to the share suggestion.
@@ -62,6 +99,53 @@ def classify(image: Path, cfg: Config) -> DemoRoute:
         "No validated review signal found — propose sharing on WhatsApp.",
         triage=triage,
     )
+
+
+def choose_route(route: DemoRoute, source_text: str = "") -> DemoRoute | None:
+    """Native, topmost approval overlay. No destination opens before a click."""
+    import tkinter as tk
+
+    choice: dict[str, str | None] = {"value": None}
+    root = tk.Tk()
+    root.title("Screenshot understood")
+    root.attributes("-topmost", True)
+    root.resizable(False, False)
+    frame = tk.Frame(root, padx=24, pady=20)
+    frame.pack()
+    tk.Label(frame, text="What should I do with this screenshot?", font=("Helvetica", 18, "bold")).pack(pady=(0, 8))
+    tk.Label(frame, text=f"Suggested: {route.name.replace('_', ' ')}\n{route.summary}",
+             justify="center", wraplength=520).pack(pady=(0, 18))
+
+    def pick(value: str | None) -> None:
+        choice["value"] = value
+        root.destroy()
+
+    buttons = tk.Frame(frame)
+    buttons.pack()
+    tk.Button(buttons, text="Add to Calendar", width=18, command=lambda: pick("calendar")).grid(row=0, column=0, padx=5)
+    tk.Button(buttons, text="Send on WhatsApp", width=18, command=lambda: pick("whatsapp")).grid(row=0, column=1, padx=5)
+    tk.Button(buttons, text="Review in Glassbox", width=18, command=lambda: pick("glassbox_review")).grid(row=0, column=2, padx=5)
+    tk.Button(frame, text="Cancel", command=lambda: pick(None)).pack(pady=(14, 0))
+    root.protocol("WM_DELETE_WINDOW", lambda: pick(None))
+    root.eval("tk::PlaceWindow . center")
+    root.mainloop()
+
+    selected = choice["value"]
+    if selected is None:
+        return None
+    if selected == route.name:
+        return route
+    if selected == "glassbox_review":
+        return DemoRoute(
+            "glassbox_review", "User selected Glassbox human review.",
+            triage=route.triage or _context_review(source_text, route.event.confidence if route.event else .5),
+        )
+    if selected == "calendar":
+        # Do not invent event fields when the screenshot was not an event.
+        if route.event is None:
+            return None
+        return DemoRoute("calendar", "User selected Calendar.", event=route.event)
+    return DemoRoute("whatsapp", "User selected WhatsApp sharing.")
 
 
 def _data_uri(image: Path) -> str:
@@ -231,6 +315,12 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         print(f"Routing failed: {exc}", file=sys.stderr)
         return 2
+    if not args.prepare_only:
+        chosen = choose_route(route, route.event.source_text if route.event else "")
+        if chosen is None:
+            print("Cancelled — no action opened.")
+            return 0
+        route = chosen
     destination = prepare_destination(Path.cwd() / "runs", image, route)
     print(json.dumps({"route": route.name, "summary": route.summary,
                       "destination": "Google Calendar" if route.name == "calendar" else str(destination)}, indent=2))
