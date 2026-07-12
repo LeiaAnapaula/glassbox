@@ -445,9 +445,12 @@ def run_cua(cfg: Config, destination: Path, route: DemoRoute, out: Path) -> tupl
 
     if route.name == "calendar":
         assert route.event is not None
-        subprocess.run(["open", google_calendar_url(route.event)], check=True)
+        subprocess.run(
+            ["open", "-a", "Google Chrome", google_calendar_url(route.event)],
+            check=True,
+        )
     else:
-        subprocess.run(["open", str(destination)], check=True)
+        subprocess.run(["open", "-a", "Google Chrome", str(destination)], check=True)
     time.sleep(2)
     runs = HOLO_HOME / "runs"
     before = {p.name for p in runs.iterdir() if p.is_dir()} if runs.exists() else set()
