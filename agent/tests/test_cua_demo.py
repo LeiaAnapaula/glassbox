@@ -35,3 +35,5 @@ def test_glassbox_route_is_not_calendar(tmp_path: Path):
     assert "Open Glassbox Review" in handoff.read_text()
     assert "calendar.google.com" not in handoff.read_text()
     assert "Not a trafficking determination" in review.read_text()
+    assert "Extraction confidence · not a risk score" in review.read_text()
+    assert "local Glassbox demo queue only" in review.read_text()

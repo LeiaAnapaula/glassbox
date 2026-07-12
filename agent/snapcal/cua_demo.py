@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import html
 import json
 import shutil
@@ -257,28 +258,51 @@ _STYLE = """body{font:18px system-ui;background:#0b1020;color:#eef2ff;max-width:
 img{max-width:360px;max-height:440px;float:right;margin-left:24px;border-radius:12px}
 textarea,input{width:52%;font:18px system-ui;padding:12px;background:#080d1c;color:#7fffd4;border:1px solid #53618d}
 textarea{height:90px}a,button{display:inline-block;padding:14px 20px;background:#5b7cfa;color:white;border:0;border-radius:10px;text-decoration:none;margin:4px}
-.warn{color:#ffd479}.quote{border-left:3px solid #7fffd4;padding-left:12px}small{color:#aab4d6}"""
+.warn{color:#ffd479}.quote{border-left:3px solid #7fffd4;padding:10px 12px;background:#0c1328;border-radius:4px}
+small,.muted{color:#aab4d6}.topline{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #2d385d;padding-bottom:14px}
+.badge{font:13px ui-monospace;padding:6px 10px;border:1px solid #ffd479;border-radius:99px;color:#ffd479}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.panel{border:1px solid #2d385d;border-radius:12px;padding:16px;background:#0d1429}.label{font:12px ui-monospace;text-transform:uppercase;color:#8491bc;letter-spacing:.08em}
+.danger{background:#26304f}.secondary{background:transparent;border:1px solid #66719a}"""
 
 
 def write_review_page(page: Path, image: Path, route: DemoRoute) -> None:
     triage = route.triage
     assert triage is not None
+    case_id = "GBX-" + hashlib.sha256(image.read_bytes()).hexdigest()[:10].upper()
     statements = "".join(
-        f'<p class="quote"><b>{html.escape(item.category)}</b>: “{html.escape(item.quote)}”</p>'
+        f'<div class="quote"><div class="label">{html.escape(item.category.replace("_", " "))}</div>“{html.escape(item.quote)}”<br><small>{html.escape(item.explanation)}</small></div>'
         for item in triage.observable_statements
     ) or "<p>No validated observable statements.</p>"
     missing = "".join(f"<li>{html.escape(item)}</li>" for item in triage.missing_context)
+    limitations = "".join(f"<li>{html.escape(item)}</li>" for item in triage.limitations)
     page.write_text(f"""<!doctype html><meta charset="utf-8"><title>Glassbox Review</title><style>{_STYLE}</style>
-<div class="card"><img src="data:{_data_uri(image)}"><h1>Glassbox Human Review</h1>
-<p class="warn"><b>Not a trafficking determination.</b> This screenshot lacks full context.</p>
-<p><b>Model disposition:</b> {html.escape(triage.kind)} · <b>extraction confidence:</b> {triage.confidence:.0%}</p>
-<p>{html.escape(triage.summary)}</p><h2>Observable statements</h2>{statements}
-<h2>Missing context</h2><ul>{missing}</ul><label><b>CUA review note</b></label><br>
-<textarea id="review-note" placeholder="The CUA will summarize what is visible."></textarea><p>
-<button onclick="decision('submitted')">Submit to review queue</button>
-<button onclick="decision('dismissed')">Dismiss</button></p><p id="decision" class="warn">Awaiting human decision.</p>
-<small>The CUA must not press either decision button.</small></div>
-<script>function decision(x){{document.querySelector('#decision').textContent='Human decision: '+x;}}</script>""")
+<div class="card"><div class="topline"><div><div class="label">Glassbox safeguarding triage</div><h1>Human Review Record</h1></div><span class="badge">AWAITING DECISION</span></div>
+<img src="data:{_data_uri(image)}"><p><span class="label">Case ID</span><br><b>{case_id}</b></p>
+<p class="warn"><b>Not a trafficking determination.</b><br>This record preserves observable content for trained review. It does not identify a victim, perpetrator, crime, or level of risk.</p>
+<div class="grid"><div class="panel"><div class="label">Model disposition</div><b>{html.escape(triage.kind.replace('_', ' '))}</b></div>
+<div class="panel"><div class="label">Extraction confidence · not a risk score</div><b>{triage.confidence:.0%}</b></div></div>
+<h2>Preliminary summary</h2><p>{html.escape(triage.summary)}</p><h2>Observable evidence</h2>{statements}
+<div class="grid"><section class="panel"><div class="label">Missing context</div><ul>{missing or '<li>Context not established</li>'}</ul></section>
+<section class="panel"><div class="label">Method limitations</div><ul>{limitations or '<li>Single screenshot; trained human review required</li>'}</ul></section></div>
+<h2>Agent-prepared review note</h2><textarea id="review-note" aria-label="CUA review note" placeholder="Evidence-only note; no accusation or determination."></textarea>
+<p class="muted">The note and original screenshot will remain together in the local review record.</p>
+<div class="panel"><div class="label">Human decision required</div><p id="decision" class="warn">Awaiting human decision.</p>
+<button class="danger" onclick="decision('submitted')">Submit to review queue</button>
+<button class="secondary" onclick="decision('dismissed')">Dismiss</button></div>
+<p><small>Submission is to the local Glassbox demo queue only. No hotline, law-enforcement, or external report is created.</small></p></div>
+<script>
+const caseId={json.dumps(case_id)};
+function decision(x){{
+  if(x==='submitted'){{
+    const queue=JSON.parse(localStorage.getItem('glassbox.reviewQueue')||'[]');
+    queue.push({{case_id:caseId,status:'submitted',submitted_at:new Date().toISOString(),note:document.querySelector('#review-note').value}});
+    localStorage.setItem('glassbox.reviewQueue',JSON.stringify(queue));
+  }}
+  document.querySelector('#decision').textContent='Human decision: '+x;
+  document.querySelector('.badge').textContent=x.toUpperCase();
+  document.querySelectorAll('button').forEach(b=>b.disabled=true);
+}}
+</script>""")
 
 
 def write_share_page(page: Path, image: Path) -> None:
