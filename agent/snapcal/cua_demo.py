@@ -82,6 +82,7 @@ def classify(image: Path, cfg: Config) -> DemoRoute:
         return DemoRoute(
             "glassbox_review",
             "Recruitment claims need context — propose Glassbox human review; not a trafficking determination.",
+            event=event,
             triage=_context_review(event.source_text or "", event.confidence),
         )
 
@@ -90,18 +91,22 @@ def classify(image: Path, cfg: Config) -> DemoRoute:
     try:
         _verify_synthetic(image)
     except ValueError:
-        return DemoRoute("whatsapp", "No event found — propose sharing on WhatsApp.")
+        return DemoRoute(
+            "whatsapp", "No event found — propose sharing on WhatsApp.", event=event
+        )
 
     triage = TriageModelClient(cfg).extract(image)
     if triage.kind == "review":
         return DemoRoute(
             "glassbox_review",
             "Observable concern found — human review recommended; not a trafficking determination.",
+            event=event,
             triage=triage,
         )
     return DemoRoute(
         "whatsapp",
         "No validated review signal found — propose sharing on WhatsApp.",
+        event=event,
         triage=triage,
     )
 
@@ -200,14 +205,15 @@ def choose_route(route: DemoRoute, source_text: str = "") -> DemoRoute | None:
     if selected == "glassbox_review":
         return DemoRoute(
             "glassbox_review", "User selected Glassbox human review.",
+            event=route.event,
             triage=route.triage or _context_review(source_text, route.event.confidence if route.event else .5),
         )
     if selected == "calendar":
-        # Do not invent event fields when the screenshot was not an event.
-        if route.event is None:
-            return None
-        return DemoRoute("calendar", "User selected Calendar.", event=route.event)
-    return DemoRoute("whatsapp", "User selected WhatsApp sharing.")
+        candidate = route.event or EventCandidate(
+            kind="uncertain", confidence=0, title="Review screenshot details"
+        )
+        return DemoRoute("calendar", "User selected Calendar; review incomplete fields before Save.", event=candidate)
+    return DemoRoute("whatsapp", "User selected WhatsApp sharing.", event=route.event)
 
 
 def run_whatsapp_confirmation(cfg: Config, image: Path) -> int:
