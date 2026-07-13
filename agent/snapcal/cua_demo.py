@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import argparse
 import base64
+import fcntl
 import hashlib
 import html
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -174,6 +176,10 @@ def choose_route(route: DemoRoute, source_text: str = "") -> DemoRoute | None:
 
     def pick(value: str | None) -> None:
         choice["value"] = value
+        # Hide synchronously so the chooser is gone before Calendar, WhatsApp,
+        # or Glassbox begins opening windows.
+        root.withdraw()
+        root.update_idletasks()
         root.destroy()
 
     buttons = tk.Frame(frame)
@@ -518,6 +524,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.image:
             parser.error("do not provide IMAGE with --watch")
         cfg = Config.load()
+        lock_handle = (cfg.data_dir / "screenshot-watcher.lock").open("w")
+        try:
+            fcntl.flock(lock_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("A screenshot watcher is already running. Stop it before starting another.", file=sys.stderr)
+            return 2
+        lock_handle.write(str(os.getpid()))
+        lock_handle.flush()
         print(f"Watching {cfg.screenshot_dir} — take a screenshot with Cmd+Shift+4", flush=True)
         known = {
             p: p.stat().st_mtime_ns for p in cfg.screenshot_dir.iterdir()
