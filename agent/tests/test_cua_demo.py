@@ -37,3 +37,21 @@ def test_glassbox_route_is_not_calendar(tmp_path: Path):
     assert "Not a trafficking determination" in review.read_text()
     assert "Extraction confidence · not a risk score" in review.read_text()
     assert "local Glassbox demo queue only" in review.read_text()
+
+
+def test_non_review_disposition_disables_cua_note_and_submit(tmp_path: Path):
+    from snapcal.triage_schema import ObservableStatement, TriageCandidate
+
+    image = tmp_path / "shot.png"
+    image.write_bytes(b"not-a-real-png")
+    triage = TriageCandidate(
+        kind="insufficient_context", confidence=.5, summary="Context is missing.",
+        observable_statements=[ObservableStatement("other", "visible claim", "visible")],
+    )
+    _, review = prepare_pages(
+        tmp_path, image, DemoRoute("glassbox_review", "Inspect.", triage=triage)
+    )
+    text = review.read_text()
+    assert "Automation withheld" in text
+    assert 'aria-label="CUA review note"' in text
+    assert 'disabled>Submit to review queue' in text

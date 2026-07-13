@@ -299,6 +299,7 @@ small,.muted{color:#667085}.topline{display:flex;justify-content:space-between;a
 def write_review_page(page: Path, image: Path, route: DemoRoute) -> None:
     triage = route.triage
     assert triage is not None
+    actionable = triage.kind == "review" and bool(triage.observable_statements)
     case_id = "GBX-" + hashlib.sha256(image.read_bytes()).hexdigest()[:10].upper()
     statements = "".join(
         f'<div class="quote"><div class="label">{html.escape(item.category.replace("_", " "))}</div>“{html.escape(item.quote)}”<br><small>{html.escape(item.explanation)}</small></div>'
@@ -315,10 +316,10 @@ def write_review_page(page: Path, image: Path, route: DemoRoute) -> None:
 <h2>Preliminary summary</h2><p>{html.escape(triage.summary)}</p><h2>Observable evidence</h2>{statements}
 <div class="grid"><section class="panel"><div class="label">Missing context</div><ul>{missing or '<li>Context not established</li>'}</ul></section>
 <section class="panel"><div class="label">Method limitations</div><ul>{limitations or '<li>Single screenshot; trained human review required</li>'}</ul></section></div>
-<h2>Agent-prepared review note</h2><textarea id="review-note" aria-label="CUA review note" placeholder="Evidence-only note; no accusation or determination."></textarea>
-<p class="muted">The note and original screenshot will remain together in the local review record.</p>
+<h2>Agent-prepared review note</h2><textarea id="review-note" aria-label="CUA review note" placeholder="{'Evidence-only note; no accusation or determination.' if actionable else 'Automation withheld: no review disposition was identified.'}"{' ' if actionable else ' disabled'}></textarea>
+<p class="muted">{'The CUA may prepare a note because the validated disposition is review.' if actionable else 'No CUA note was generated. Only a validated review disposition can trigger automation.'}</p>
 <div class="panel"><div class="label">Human decision required</div><p id="decision" class="warn">Awaiting human decision.</p>
-<button class="danger" onclick="decision('submitted')">Submit to review queue</button>
+<button class="danger" onclick="decision('submitted')"{' ' if actionable else ' disabled'}>Submit to review queue</button>
 <button class="secondary" onclick="decision('dismissed')">Dismiss</button></div>
 <p><small>Submission is to the local Glassbox demo queue only. No hotline, law-enforcement, or external report is created.</small></p></div>
 <script>
@@ -605,6 +606,17 @@ def process_image(image: Path, cfg: Config, *, trace: Path, prepare_only: bool) 
     print(json.dumps({"route": route.name, "summary": route.summary,
                       "destination": "Google Calendar" if route.name == "calendar" else str(destination)}, indent=2))
     if prepare_only:
+        return 0
+    if (
+        route.name == "glassbox_review"
+        and (route.triage is None or route.triage.kind != "review" or not route.triage.observable_statements)
+    ):
+        subprocess.run(["open", "-a", "Google Chrome", str(destination)], check=True)
+        print(
+            "Glassbox record opened for human inspection. CUA note and submission were withheld "
+            f"because disposition={route.triage.kind if route.triage else 'missing'}.",
+            flush=True,
+        )
         return 0
     code, message = run_cua(cfg, destination, route, trace)
     print(message)
