@@ -284,16 +284,16 @@ def _data_uri(image: Path) -> str:
     return f"{mime};base64,{base64.b64encode(image.read_bytes()).decode()}"
 
 
-_STYLE = """body{font:18px system-ui;background:#0b1020;color:#eef2ff;max-width:980px;margin:32px auto}
-.card{border:1px solid #53618d;border-radius:18px;padding:24px;background:#111831;overflow:auto}
-img{max-width:360px;max-height:440px;float:right;margin-left:24px;border-radius:12px}
-textarea,input{width:52%;font:18px system-ui;padding:12px;background:#080d1c;color:#7fffd4;border:1px solid #53618d}
-textarea{height:90px}a,button{display:inline-block;padding:14px 20px;background:#5b7cfa;color:white;border:0;border-radius:10px;text-decoration:none;margin:4px}
-.warn{color:#ffd479}.quote{border-left:3px solid #7fffd4;padding:10px 12px;background:#0c1328;border-radius:4px}
-small,.muted{color:#aab4d6}.topline{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #2d385d;padding-bottom:14px}
-.badge{font:13px ui-monospace;padding:6px 10px;border:1px solid #ffd479;border-radius:99px;color:#ffd479}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.panel{border:1px solid #2d385d;border-radius:12px;padding:16px;background:#0d1429}.label{font:12px ui-monospace;text-transform:uppercase;color:#8491bc;letter-spacing:.08em}
-.danger{background:#26304f}.secondary{background:transparent;border:1px solid #66719a}"""
+_STYLE = """*{box-sizing:border-box}body{font:16px system-ui,-apple-system,sans-serif;background:#f4f6fa;color:#172033;max-width:1120px;margin:0 auto;padding:32px}
+.card{border:1px solid #d9dfea;border-radius:18px;padding:28px;background:#fff;overflow:auto;box-shadow:0 8px 28px rgba(16,24,40,.08)}
+h1{margin:4px 0 0;font-size:30px}h2{font-size:19px;margin:26px 0 10px}img{max-width:360px;max-height:440px;float:right;margin:22px 0 20px 28px;border-radius:12px;border:1px solid #d9dfea;background:#eef1f6}
+textarea,input{width:100%;font:16px system-ui;padding:14px;background:#fff;color:#172033;border:1px solid #b8c1d1;border-radius:9px;outline:none}textarea:focus,input:focus{border-color:#3157c8;box-shadow:0 0 0 3px rgba(49,87,200,.12)}
+textarea{height:110px;resize:vertical}a,button{display:inline-block;padding:12px 18px;background:#3157c8;color:white;font-weight:650;border:0;border-radius:9px;text-decoration:none;margin:4px;cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}
+.warn{color:#8a4b00;background:#fff8e7;border:1px solid #f0d49a;padding:14px 16px;border-radius:10px}.quote{border-left:4px solid #087e67;padding:14px 16px;background:#f3fbf8;border-radius:7px;margin:10px 0}
+small,.muted{color:#667085}.topline{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e4e8ef;padding-bottom:18px;margin-bottom:20px}
+.badge{font:12px ui-monospace;padding:7px 11px;border:1px solid #b86200;border-radius:99px;color:#8a4b00;background:#fff8e7}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.panel{border:1px solid #d9dfea;border-radius:12px;padding:17px;background:#f8fafc}.label{font:12px ui-monospace;text-transform:uppercase;color:#667085;letter-spacing:.08em;margin-bottom:5px}
+.danger{background:#3157c8}.secondary{background:#fff;color:#344054;border:1px solid #b8c1d1}@media(max-width:760px){body{padding:14px}.card{padding:18px}.grid{grid-template-columns:1fr}img{float:none;margin:12px 0;width:100%;max-width:none}}"""
 
 
 def write_review_page(page: Path, image: Path, route: DemoRoute) -> None:
