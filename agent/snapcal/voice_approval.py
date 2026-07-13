@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import subprocess
 import tempfile
@@ -79,3 +80,14 @@ def approve(prompt: str, *, title: str = "Irreversible action") -> bool:
         ))
     finally:
         root.destroy()
+
+
+def notify_decision(approved: bool, action: str) -> None:
+    """Immediate, non-focus-stealing feedback while the commit CUA starts."""
+    if approved:
+        message = f"Approved — CUA is {action} now. This may take several seconds."
+    else:
+        message = "Blocked — nothing will happen."
+    print(f"[approval] {message}", flush=True)
+    script = f'display notification {json.dumps(message)} with title "Glassbox approval"'
+    subprocess.run(["/usr/bin/osascript", "-e", script], capture_output=True)

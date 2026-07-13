@@ -235,7 +235,7 @@ def run_whatsapp_confirmation(cfg: Config, image: Path) -> int:
         print("WhatsApp cancelled — no recipient selected.")
         return 0
     contact = contact.strip()
-    from .voice_approval import approve
+    from .voice_approval import approve, notify_decision
     try:
         approved = approve(
             f"Send this screenshot to {contact}?",
@@ -246,9 +246,11 @@ def run_whatsapp_confirmation(cfg: Config, image: Path) -> int:
         root.destroy()
         return 1
     if not approved:
+        notify_decision(False, "")
         root.destroy()
         print("WhatsApp cancelled — human rejected Send.")
         return 0
+    notify_decision(True, "sending the WhatsApp screenshot")
     runs = HOLO_HOME / "runs"
     before = {p.name for p in runs.iterdir() if p.is_dir()} if runs.exists() else set()
     try:
@@ -486,13 +488,19 @@ def run_cua(cfg: Config, destination: Path, route: DemoRoute, out: Path) -> tupl
     latest = out.parent / "latest.jsonl"
     if out != latest:
         shutil.copyfile(out, latest)
-    from .voice_approval import approve
+    from .voice_approval import approve, notify_decision
     try:
         approved = approve(_approval_prompt(route), title="Human approval required")
     except Exception as exc:
         return 1, f"Gradium approval failed; action blocked: {exc}"
     if not approved:
+        notify_decision(False, "")
         return 0, f"{steps} preparation steps recorded; human clicked No, action blocked"
+
+    notify_decision(
+        True,
+        "saving the Calendar event" if route.name == "calendar" else "submitting the review",
+    )
 
     before_commit = {p.name for p in runs.iterdir() if p.is_dir()} if runs.exists() else set()
     commit_answer = ""
