@@ -57,6 +57,7 @@ def _synthesise(prompt: str) -> bytes:
 def approve(prompt: str, *, title: str = "Irreversible action") -> bool:
     """Speak with Gradium, then accept an explicit computer click: Yes or No."""
     import tkinter as tk
+    from tkinter import messagebox
 
     audio = _synthesise(prompt)
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as handle:
@@ -67,34 +68,18 @@ def approve(prompt: str, *, title: str = "Irreversible action") -> bool:
     finally:
         path.unlink(missing_ok=True)
 
-    decision = {"approved": False}
     root = tk.Tk()
-    root.title(title)
+    root.withdraw()
     root.attributes("-topmost", True)
-    root.resizable(False, False)
-    frame = tk.Frame(root, padx=28, pady=22)
-    frame.pack()
-    tk.Label(frame, text="Human approval required", font=("Helvetica", 18, "bold")).pack(pady=(0, 10))
-    tk.Label(frame, text=prompt, wraplength=520, justify="center").pack(pady=(0, 18))
-    buttons = tk.Frame(frame)
-    buttons.pack()
-
-    def pick(value: bool) -> None:
-        decision["approved"] = value
-        # Remove the window before returning control to the CUA commit path.
-        root.grab_release()
-        root.withdraw()
-        root.update_idletasks()
+    try:
+        return bool(messagebox.askyesno(
+            title,
+            prompt + "\n\nClick Yes to approve or No to block.",
+            parent=root,
+            icon="warning",
+        ))
+    finally:
         root.destroy()
-
-    tk.Button(buttons, text="Yes — approve", width=20, command=lambda: pick(True)).grid(row=0, column=0, padx=6)
-    tk.Button(buttons, text="No — block", width=20, command=lambda: pick(False)).grid(row=0, column=1, padx=6)
-    root.protocol("WM_DELETE_WINDOW", lambda: pick(False))
-    root.eval("tk::PlaceWindow . center")
-    root.grab_set()
-    root.focus_force()
-    root.mainloop()
-    return bool(decision["approved"])
 
 
 def notify_decision(approved: bool, action: str) -> None:

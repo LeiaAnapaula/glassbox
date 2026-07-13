@@ -488,25 +488,13 @@ def run_cua(cfg: Config, destination: Path, route: DemoRoute, out: Path) -> tupl
     latest = out.parent / "latest.jsonl"
     if out != latest:
         shutil.copyfile(out, latest)
-    # Cold-start the commit CUA before asking the human. Once Yes is clicked,
-    # the already-running MCP can receive the task immediately.
-    commit_mcp = None
-    try:
-        commit_mcp = HoloMCP(cfg.holo_bin)
-    except Exception as exc:
-        return 1, f"Commit CUA could not be prepared; action blocked: {exc}"
-
     from .voice_approval import approve, notify_decision
     try:
         approved = approve(_approval_prompt(route), title="Human approval required")
     except Exception as exc:
-        commit_mcp.close()
-        subprocess.run([str(cfg.holo_bin), "stop"], capture_output=True)
         return 1, f"Gradium approval failed; action blocked: {exc}"
     if not approved:
         notify_decision(False, "")
-        commit_mcp.close()
-        subprocess.run([str(cfg.holo_bin), "stop"], capture_output=True)
         return 0, f"{steps} preparation steps recorded; human clicked No, action blocked"
 
     notify_decision(
@@ -516,7 +504,9 @@ def run_cua(cfg: Config, destination: Path, route: DemoRoute, out: Path) -> tupl
 
     before_commit = {p.name for p in runs.iterdir() if p.is_dir()} if runs.exists() else set()
     commit_answer = ""
+    commit_mcp = None
     try:
+        commit_mcp = HoloMCP(cfg.holo_bin)
         commit_answer = commit_mcp.run_task(_commit_task(route), timeout_s=90)
     except Exception as exc:
         return 1, f"Approval recorded but CUA commit failed: {exc}"
