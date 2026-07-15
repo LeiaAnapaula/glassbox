@@ -10,3 +10,6 @@ __pycache__/
 build/
 dist/
 # agent state (OAuth token, caches, traces) lives in ~/.snapcal by default
+
+# working handoff notes, not permanent project docs
+agent/HANDOFF.md
